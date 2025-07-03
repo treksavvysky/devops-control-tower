@@ -380,7 +380,7 @@ Format as JSON with clear sections.
                 "repository": repo,
                 "analytics": analytics,
                 "ai_insights": ai_insights,
-                "timestamp": Event.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat()
             }
         except Exception as e:
             logger.error(f"Failed to get development insights for {repo}: {e}")
