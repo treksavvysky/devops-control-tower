@@ -1,6 +1,7 @@
 """Test configuration and fixtures."""
 
 import pytest
+import pytest_asyncio
 import asyncio
 from typing import Generator
 
@@ -16,7 +17,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def orchestrator() -> Orchestrator:
     """Create a test orchestrator instance."""
     orch = Orchestrator()

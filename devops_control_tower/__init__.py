@@ -9,7 +9,7 @@ __author__ = "George Loudon"
 __email__ = "george@example.com"
 
 from .core.orchestrator import Orchestrator
-from .core.agents.base import BaseAgent
+from .agents.base import BaseAgent
 from .data.models import *
 
 __all__ = [
