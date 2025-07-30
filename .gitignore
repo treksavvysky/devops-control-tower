@@ -151,3 +151,5 @@ celerybeat.pid
 .mypy_cache/
 .dmypy.json
 dmypy.json
+# Local development scripts
+activate_env.sh
