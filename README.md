@@ -6,6 +6,7 @@ A next-generation DevOps orchestration platform that integrates and manages all 
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![codecov](https://codecov.io/gh/your-org/devops-control-tower/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/devops-control-tower)
 
 ## 🎯 Vision
 
@@ -180,12 +181,11 @@ devops-control-tower/
 git clone https://github.com/your-org/devops-control-tower.git
 cd devops-control-tower
 
-# Set up virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
 # Install dependencies
-pip install -r requirements.txt
+poetry install
+
+# Activate virtual environment
+poetry shell
 
 # Set up configuration
 cp .env.example .env
@@ -195,7 +195,7 @@ cp .env.example .env
 docker-compose up -d
 
 # Initialize the platform
-python scripts/setup.py
+poetry run python scripts/setup.py
 ```
 
 ## 🤝 Integration with Jules Dev Kit

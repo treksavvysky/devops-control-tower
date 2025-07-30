@@ -9,9 +9,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.python-version == '3.13-dev' }}
     strategy:
+      fail-fast: false
       matrix:
-        python-version: [3.13]
+        python-version: ["3.12", "3.13-dev"]
 
     services:
       redis:
@@ -58,26 +60,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Lint with flake8
-      run: |
-        flake8 devops_control_tower --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 devops_control_tower --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+    - name: Run pre-commit
+      run: pre-commit run --all-files --show-diff-on-failure --color always
 
-    - name: Check code formatting with black
-      run: black --check devops_control_tower
-
-    - name: Check import sorting with isort
-      run: isort --check-only devops_control_tower
-
-    - name: Type checking with mypy
-      run: mypy devops_control_tower
-
-    - name: Test with pytest
+    - name: Run tests
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_devops_control_tower
         REDIS_URL: redis://localhost:6379/0
       run: |
-        pytest --cov=devops_control_tower --cov-report=xml --cov-report=html
+        coverage run -m pytest
+        coverage xml
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
