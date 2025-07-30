@@ -70,7 +70,7 @@ Issues = "https://github.com/your-org/devops-control-tower/issues"
 [tool.poetry.scripts]
 devops-tower = "devops_control_tower.cli:main"
 tower-agent = "devops_control_tower.agents.cli:main"
-tower-dashboard = "devops_control_tower.dashboard:serve"
+serve = "devops_control_tower.main:app"
 
 [tool.black]
 line-length = 88
