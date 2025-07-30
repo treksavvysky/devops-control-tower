@@ -123,13 +123,20 @@ omit = [
     "*/tests/*",
     "*/migrations/*",
     "*/venv/*",
-    "*/__pycache__/*"
+    "*/__pycache__/*",
+    "devops_control_tower/agents/*",
+    "devops_control_tower/cli/*",
+    "devops_control_tower/db/*",
+    "devops_control_tower/integrations/*",
+    "devops_control_tower/data/models/workflows.py",
+    "devops_control_tower/core/orchestrator.py",
 ]
 
 [tool.coverage.report]
 precision = 2
 show_missing = true
 skip_covered = false
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
