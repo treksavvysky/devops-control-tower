@@ -1,28 +1,18 @@
-from __future__ import annotations
+"""
+Main entry point for DevOps Control Tower.
+"""
 
-import importlib.metadata
-
-from fastapi import FastAPI
-
-app = FastAPI(
-    title="DevOps Control Tower",
-    description="Centralized command center for AI-powered development operations",
-)
-
-
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
-
-
-@app.get("/version")
-def version() -> dict[str, str]:
-    """Return the version of the application."""
-    return {"version": importlib.metadata.version("devops-control-tower")}
-
+from .api import app
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    from .config import get_settings
+    
+    settings = get_settings()
+    uvicorn.run(
+        "devops_control_tower.main:app",
+        host=settings.api_host,
+        port=settings.api_port,
+        reload=settings.debug,
+        workers=1 if settings.debug else settings.api_workers
+    )
