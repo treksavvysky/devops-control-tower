@@ -170,10 +170,15 @@ devops-control-tower/
 ## 🚦 Getting Started
 
 ### Prerequisites
+
 - Python 3.13+
-- Docker & Docker Compose
-- Kubernetes cluster (local or cloud)
 - Git
+- (Optional) Docker & Docker Compose
+- (Optional) Kubernetes cluster (local or cloud)
+
+Postgres is only required when you explicitly point `DATABASE_URL` at an external
+instance. By default the project runs against a local SQLite database so no
+system packages are needed for development.
 
 ### Quick Setup
 ```bash
@@ -181,22 +186,30 @@ devops-control-tower/
 git clone https://github.com/your-org/devops-control-tower.git
 cd devops-control-tower
 
-# Install dependencies
-poetry install
+# Create and activate a local virtual environment
+python -m venv .venv
+source .venv/bin/activate
 
-# Activate virtual environment
-poetry shell
+# Install Python dependencies
+pip install --upgrade pip
+pip install -e .
 
-# Set up configuration
+# Set up configuration (defaults to local SQLite)
 cp .env.example .env
-# Edit .env with your settings
+export DATABASE_URL=${DATABASE_URL:-"sqlite:///./devops_control_tower.db"}
 
-# Start development environment
-docker-compose up -d
+# Run database migrations against the local database
+alembic upgrade head
 
-# Initialize the platform
-poetry run python scripts/setup.py
+# Start the FastAPI application
+python -m devops_control_tower.main
 ```
+
+To use an external Postgres instance (e.g., on `dev-xxl`), set `DATABASE_URL`
+to the desired connection string (such as
+`postgresql+psycopg://user:password@host:5432/devops_control_tower`) before
+running migrations. Alembic automatically rewrites async drivers to synchronous
+ones during migrations.
 
 ## 🤝 Integration with Jules Dev Kit
 

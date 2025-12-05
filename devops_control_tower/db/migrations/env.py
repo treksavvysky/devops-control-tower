@@ -6,12 +6,12 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-from sqlalchemy.engine.url import make_url
 
 # add project to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from devops_control_tower.db import models  # noqa: E402
+from devops_control_tower.db.base import DEFAULT_DATABASE_URL, get_database_url  # noqa: E402
 
 config = context.config
 
@@ -20,18 +20,12 @@ if config.config_file_name is not None:
 
 target_metadata = models.Base.metadata
 
+
 def get_url() -> str:
+    """Return a synchronous database URL for migrations."""
+
     raw = os.getenv("DATABASE_URL")
-    if not raw:
-        raise RuntimeError("DATABASE_URL environment variable is not set")
-
-    url = make_url(raw)
-
-    # If app uses asyncpg, rewrite to a sync driver for Alembic
-    if url.drivername.startswith("postgresql+asyncpg"):
-        url = url.set(drivername="postgresql+psycopg")
-
-    return str(url)
+    return get_database_url(raw or DEFAULT_DATABASE_URL)
 
 def run_migrations_offline():
     url = get_url()
