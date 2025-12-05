@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/devops_control_tower",
+        default="sqlite:///./devops_control_tower.db",
         env="DATABASE_URL"
     )
     

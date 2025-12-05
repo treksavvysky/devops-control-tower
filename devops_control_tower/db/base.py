@@ -1,18 +1,42 @@
-"""
-Database configuration and base setup for DevOps Control Tower.
-"""
+"""Database configuration and base setup for DevOps Control Tower."""
 
 import os
+from typing import Optional
+
 from sqlalchemy import create_engine
+from sqlalchemy.engine.url import URL, make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# Get database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://postgres:postgres@localhost:5432/devops_control_tower"
-)
+# Default to a local SQLite database when DATABASE_URL is not provided.
+DEFAULT_DATABASE_URL = "sqlite:///./devops_control_tower.db"
+
+
+def _ensure_sync_driver(url: URL) -> URL:
+    """Force a synchronous driver for Alembic and the ORM engine."""
+
+    if url.drivername.startswith("postgresql+"):
+        # Normalize any async driver variants to psycopg (sync)
+        if any(token in url.drivername for token in ("async", "aiopg")):
+            url = url.set(drivername="postgresql+psycopg")
+    elif url.drivername.startswith("sqlite+"):
+        # Align async SQLite drivers to the synchronous default
+        if "aiosqlite" in url.drivername:
+            url = url.set(drivername="sqlite")
+
+    return url
+
+
+def get_database_url(raw_url: Optional[str] = None) -> str:
+    """Return a database URL with a guaranteed synchronous driver."""
+
+    url = make_url(raw_url or os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL)
+    return str(_ensure_sync_driver(url))
+
+
+# Get database URL from environment with a safe local fallback
+DATABASE_URL = get_database_url()
 
 # Create engine with proper configuration
 if DATABASE_URL.startswith("sqlite"):
