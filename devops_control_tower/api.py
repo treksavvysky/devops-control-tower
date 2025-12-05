@@ -44,12 +44,11 @@ async def lifespan(app: FastAPI):
         # Create and start orchestrator
         global orchestrator
         orchestrator = EnhancedOrchestrator()
-        
-        # Register the infrastructure monitoring agent
-        infra_agent = InfrastructureMonitoringAgent()
-        orchestrator.agents[infra_agent.name] = infra_agent
-        
-        # Start orchestrator
+    # ...
+    # Temporary: disable infra monitoring agent for spine v0
+    # infra_agent = InfrastructureMonitoringAgent()
+    # orchestrator.register_agent("infrastructure_monitor", infra_agent)
+    # ...
         await orchestrator.start()
         logger.info("Orchestrator started successfully")
         
@@ -82,6 +81,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health", tags=["system"])
+async def health() -> dict:
+    """
+    Basic health check endpoint.
+
+    For spine v0 we just confirm the API is reachable and the app started.
+    Later we can extend this to check DB/Redis, orchestrator, etc.
+    """
+    return {"status": "ok"}
 
 # Health and Info Endpoints
 @app.get("/healthz")

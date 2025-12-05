@@ -157,3 +157,35 @@ class EnhancedOrchestrator(DatabaseOrchestratorMixin):
         # Workflow scheduler
         workflow_task = asyncio.create_task(self._schedule_workflows())
         self.running_tasks["workflow_scheduler"] = workflow_task
+    
+    async def _process_events(self) -> None:
+        """
+        Spine v0 stub event loop.
+
+        The enhanced orchestrator expects an event-processing coroutine,
+        but for now we don't need any real event routing logic to prove
+        the /tasks/enqueue → DB → worker → trace spine.
+        """
+        return
+    
+    async def _monitor_agent_health(self) -> None:
+        """
+        Spine v0 stub event loop.
+
+        The enhanced orchestrator expects an event-processing coroutine,
+        but for now we don't need any real event routing logic to prove
+        the /tasks/enqueue → DB → worker → trace spine.
+        """
+        return
+    
+    async def _schedule_workflows(self) -> None:
+        """
+        Spine v0 stub event loop.
+
+        The enhanced orchestrator expects an event-processing coroutine,
+        but for now we don't need any real event routing logic to prove
+        the /tasks/enqueue → DB → worker → trace spine.
+        """
+        return
+    
+    
