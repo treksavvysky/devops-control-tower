@@ -6,7 +6,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-
+from sqlalchemy.engine.url import make_url
 
 # add project to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -20,26 +20,33 @@ if config.config_file_name is not None:
 
 target_metadata = models.Base.metadata
 
-def get_url():
-    url = os.getenv("DATABASE_URL")
-    if not url:
+def get_url() -> str:
+    raw = os.getenv("DATABASE_URL")
+    if not raw:
         raise RuntimeError("DATABASE_URL environment variable is not set")
-    return url
 
-def run_migrations_offline() -> None:
+    url = make_url(raw)
+
+    # If app uses asyncpg, rewrite to a sync driver for Alembic
+    if url.drivername.startswith("postgresql+asyncpg"):
+        url = url.set(drivername="postgresql+psycopg")
+
+    return str(url)
+
+def run_migrations_offline():
     url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        compare_type=True,
+        compare_server_default=True,
     )
 
     with context.begin_transaction():
         context.run_migrations()
 
-
-def run_migrations_online() -> None:
+def run_migrations_online():
     connectable = engine_from_config(
         {"sqlalchemy.url": get_url()},
         prefix="sqlalchemy.",
@@ -47,7 +54,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
