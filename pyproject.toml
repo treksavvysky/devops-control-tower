@@ -177,3 +177,17 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:"
 ]
+
+[tool.poetry.extras]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "coverage",
+  "black",
+  "isort",
+  "flake8",
+  "pre-commit",
+  "mypy",
+  "ruff",
+]
