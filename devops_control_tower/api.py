@@ -18,7 +18,15 @@ from .config import get_settings
 from .core.enhanced_orchestrator import EnhancedOrchestrator
 from .data.models.events import Event, EventPriority, EventTypes
 from .db.base import get_db, init_database
-from .db.services import EventService, WorkflowService
+from .db.services import EventService, TaskService, WorkflowService
+from .policies import PolicyResult, validate_task
+from .schemas.task_v1 import (
+    TaskCreateV1,
+    TaskErrorDetail,
+    TaskErrorResponse,
+    TaskResponseV1,
+    TaskStatus,
+)
 
 # Initialize structured logging
 logger = structlog.get_logger()
@@ -301,6 +309,106 @@ async def get_workflow(
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     return workflow.to_dict()
+
+
+# Task Intake Endpoints (V1)
+@app.post(
+    "/tasks/enqueue",
+    response_model=TaskResponseV1,
+    status_code=201,
+    tags=["tasks"],
+    responses={
+        201: {"description": "Task created and queued successfully"},
+        400: {"description": "Invalid request (schema validation failed)"},
+        403: {"description": "Policy violation"},
+        409: {"description": "Conflict (duplicate idempotency_key)"},
+        422: {"description": "Unprocessable entity"},
+    },
+)
+async def enqueue_task(
+    task: TaskCreateV1,
+    db: Session = Depends(get_db),
+) -> TaskResponseV1:
+    """
+    Enqueue a new task for processing.
+
+    This is the intake endpoint for the task queue. It validates the task
+    against schema and policy rules, persists it to the database with status
+    'queued', and returns the task_id for tracking.
+
+    No work is executed at this stage - this is a pure "courthouse" intake gate.
+    """
+    task_service = TaskService(db)
+
+    # Check for idempotency key collision
+    if task.idempotency_key:
+        existing = task_service.get_task_by_idempotency_key(task.idempotency_key)
+        if existing:
+            # Return existing task info (idempotent behavior)
+            logger.info(
+                "Returning existing task for idempotency key",
+                idempotency_key=task.idempotency_key,
+                task_id=str(existing.id),
+            )
+            return TaskResponseV1(
+                task_id=existing.id,
+                status=TaskStatus(existing.status),
+                created_at=existing.created_at,
+            )
+
+    # Validate against policy rules
+    policy_result: PolicyResult = validate_task(task)
+    if policy_result.denied:
+        violation = policy_result.violations[0]
+        logger.warning(
+            "Task rejected by policy",
+            violation_type=violation.violation_type.value,
+            field=violation.field,
+            value=violation.value,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": {
+                    "code": violation.violation_type.value,
+                    "message": violation.message,
+                    "details": {
+                        "field": violation.field,
+                        "value": violation.value,
+                        "allowed": violation.allowed,
+                    },
+                }
+            },
+        )
+
+    # Persist task to database
+    try:
+        db_task = task_service.create_task(task)
+        logger.info(
+            "Task enqueued successfully",
+            task_id=str(db_task.id),
+            type=task.type,
+            priority=task.priority.value,
+            source=task.source,
+        )
+
+        return TaskResponseV1(
+            task_id=db_task.id,
+            status=TaskStatus.QUEUED,
+            created_at=db_task.created_at,
+        )
+
+    except Exception as e:
+        logger.error("Failed to enqueue task", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to enqueue task",
+                }
+            },
+        )
 
 
 # Quick Actions and Testing Endpoints

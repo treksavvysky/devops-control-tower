@@ -8,14 +8,16 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://devops:devops@postgres:5432/devops_control_tower
+      - DATABASE_URL=postgresql+psycopg2://devops:devops@postgres:5432/devops_control_tower
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   redis:
@@ -36,6 +38,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devops -d devops_control_tower"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
