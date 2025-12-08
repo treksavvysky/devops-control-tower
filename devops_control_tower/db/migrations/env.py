@@ -4,14 +4,17 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # add project to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from devops_control_tower.db import models  # noqa: E402
-from devops_control_tower.db.base import DEFAULT_DATABASE_URL, get_database_url  # noqa: E402
+from devops_control_tower.db.base import (  # noqa: E402
+    DEFAULT_DATABASE_URL,
+    get_database_url,
+)
 
 config = context.config
 
@@ -27,6 +30,7 @@ def get_url() -> str:
     raw = os.getenv("DATABASE_URL")
     return get_database_url(raw or DEFAULT_DATABASE_URL)
 
+
 def run_migrations_offline():
     url = get_url()
     context.configure(
@@ -39,6 +43,7 @@ def run_migrations_offline():
 
     with context.begin_transaction():
         context.run_migrations()
+
 
 def run_migrations_online():
     connectable = engine_from_config(

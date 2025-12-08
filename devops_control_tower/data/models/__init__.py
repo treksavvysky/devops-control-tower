@@ -1,15 +1,15 @@
 """Data models for events, workflows, and system entities."""
 
-from .events import Event, EventTypes, EventPriority, EventStatus
-from .workflows import Workflow, WorkflowStep, WorkflowBuilder, WorkflowTemplates
+from .events import Event, EventPriority, EventStatus, EventTypes
+from .workflows import Workflow, WorkflowBuilder, WorkflowStep, WorkflowTemplates
 
 __all__ = [
     "Event",
-    "EventTypes", 
+    "EventTypes",
     "EventPriority",
     "EventStatus",
     "Workflow",
     "WorkflowStep",
     "WorkflowBuilder",
-    "WorkflowTemplates"
+    "WorkflowTemplates",
 ]

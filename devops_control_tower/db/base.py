@@ -1,13 +1,19 @@
 """Database configuration and base setup for DevOps Control Tower."""
 
 import os
-from typing import Optional
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import URL, make_url
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
+
 
 # Default to a local SQLite database when DATABASE_URL is not provided.
 DEFAULT_DATABASE_URL = "sqlite:///./devops_control_tower.db"
@@ -59,11 +65,8 @@ else:
 # Session configuration
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for all models
-Base = declarative_base()
 
-
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """Dependency to get database session."""
     db = SessionLocal()
     try:
@@ -72,20 +75,20 @@ def get_db():
         db.close()
 
 
-async def init_database():
+async def init_database() -> None:
     """Initialize the database with all tables."""
     # Import all models to ensure they're registered with Base
     from . import models  # noqa: F401
-    
+
     # Create all tables
     Base.metadata.create_all(bind=engine)
-    
+
     print("Database initialized successfully!")
 
 
-async def drop_database():
+async def drop_database() -> None:
     """Drop all database tables. Use with caution!"""
     from . import models  # noqa: F401
-    
+
     Base.metadata.drop_all(bind=engine)
     print("Database tables dropped!")
