@@ -1,12 +1,13 @@
 """Test configuration and fixtures."""
 
-import pytest
-import pytest_asyncio
 import asyncio
 from typing import Generator
 
+import pytest
+import pytest_asyncio
+
 from devops_control_tower.core.orchestrator import Orchestrator
-from devops_control_tower.data.models.events import Event, EventTypes, EventPriority
+from devops_control_tower.data.models.events import Event, EventPriority, EventTypes
 
 
 @pytest.fixture
@@ -33,5 +34,5 @@ def sample_event() -> Event:
         event_type=EventTypes.SYSTEM_STARTUP,
         source="test",
         data={"message": "test event"},
-        priority=EventPriority.MEDIUM
+        priority=EventPriority.MEDIUM,
     )

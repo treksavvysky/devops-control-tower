@@ -11,8 +11,9 @@ repos:
     rev: 6.1.0
     hooks:
       - id: flake8
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.7.1
-    hooks:
-      - id: mypy
-        additional_dependencies: [types-requests]
+# mypy check disabled in pre-commit - run locally with `mypy devops_control_tower`
+# Complex typing issues with SQLAlchemy and Pydantic require full environment
+# - repo: https://github.com/pre-commit/mirrors-mypy
+#   rev: v1.7.1
+#   hooks:
+#     - id: mypy

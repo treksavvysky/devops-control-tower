@@ -54,6 +54,7 @@ Core Components (Current)
 5. Postgres
 	•	Stores all task rows.
 	•	Must be reachable via DATABASE_URL env variable.
+	•	Local development should default to a sandboxed SQLite database (sqlite:///./devops_control_tower.db); point DATABASE_URL at Postgres only when explicitly targeting an external instance.
 
 6. Docker Compose
 	•	Runs:

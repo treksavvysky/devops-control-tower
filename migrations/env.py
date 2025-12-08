@@ -1,20 +1,21 @@
-"""
-Alembic environment configuration for DevOps Control Tower.
-"""
+"""Alembic environment configuration for DevOps Control Tower."""
 
-import asyncio
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from sqlalchemy.ext.asyncio import AsyncEngine
-from alembic import context
 import os
 import sys
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from devops_control_tower.db.base import Base, DATABASE_URL
-from devops_control_tower.db.models import EventModel, WorkflowModel, AgentModel
+from devops_control_tower.db import models  # noqa: E402, F401
+from devops_control_tower.db.base import (  # noqa: E402
+    DEFAULT_DATABASE_URL,
+    Base,
+    get_database_url,
+)
 
 # this is the Alembic Config object
 config = context.config
@@ -23,15 +24,16 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set the database URL
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
-
 target_metadata = Base.metadata
+
+
+def get_url() -> str:
+    return get_database_url(os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL)
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -48,9 +50,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        {"sqlalchemy.url": get_url()}, prefix="sqlalchemy.", poolclass=pool.NullPool
     )
 
     with connectable.connect() as connection:
