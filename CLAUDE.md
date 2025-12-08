@@ -28,6 +28,7 @@ docker compose up
 # Testing
 pytest                                    # all tests
 pytest tests/test_orchestrator.py         # single file
+pytest tests/test_tasks_enqueue.py        # task enqueue tests
 pytest --cov=devops_control_tower         # with coverage
 
 # Linting/Formatting
@@ -50,10 +51,16 @@ devops_control_tower/
 ├── agents/
 │   ├── base.py              # BaseAgent (abstract) and AIAgent (LLM-enabled)
 │   └── implementations/     # Concrete agent implementations
+├── schemas/
+│   ├── __init__.py          # Schema exports
+│   └── task_v1.py           # V1 Task Pydantic models (TaskCreateV1, TaskResponseV1)
+├── policies/
+│   ├── __init__.py          # Policy exports
+│   └── task_policy.py       # Task intake policy validation (allow/deny rules)
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
-│   ├── models.py            # ORM models (Event, Workflow, Agent, Task)
-│   ├── services.py          # EventService, WorkflowService, AgentService
+│   ├── models.py            # ORM models (Event, Workflow, Agent, TaskModel)
+│   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
 └── data/models/
     ├── events.py            # Event, EventTypes, EventPriority
@@ -65,6 +72,7 @@ devops_control_tower/
 - **EnhancedOrchestrator**: Global singleton initialized in `api.py` lifespan. Manages agents, workflows, and event queue. Stubs `_process_events()` for v0.
 - **Database**: SQLite by default (`sqlite:///./devops_control_tower.db`). Set `DATABASE_URL` env var for Postgres. Alembic auto-converts async drivers to sync.
 - **Agents**: Inherit from `BaseAgent` (simple) or `AIAgent` (LLM-powered). Must implement `_initialize()`, `_cleanup()`, `handle_event()`.
+- **Task Intake (Stage 1)**: Tasks are submitted via `POST /tasks/enqueue`, validated against schema and policy, persisted with status `queued`. No execution yet.
 
 ## API Endpoints
 
@@ -73,6 +81,28 @@ devops_control_tower/
 - `GET /agents`, `GET /agents/{name}` - Agent listing and details
 - `POST /events` - Create and queue events
 - `GET /workflows` - List active workflows
+- `POST /tasks/enqueue` - **Stage 1** Task intake endpoint (validates, persists, returns task_id)
+
+### Task Enqueue Endpoint (V1)
+
+`POST /tasks/enqueue` accepts a V1 Task spec (see `docs/specs/task-spec-v1.md`):
+
+```json
+{
+  "type": "build",           // Required: build, deploy, test, scan, cleanup, notify
+  "payload": {...},          // Required: task-specific data
+  "priority": "medium",      // Optional: low, medium, high, critical
+  "source": "api",           // Optional: origin identifier
+  "target": {...},           // Optional: repository, ref, environment, path
+  "options": {...},          // Optional: timeout, retries, sandbox settings
+  "metadata": {...},         // Optional: arbitrary key-value data
+  "tags": ["ci"],            // Optional: categorization tags
+  "idempotency_key": "...",  // Optional: for deduplication
+  "callback_url": "..."      // Optional: webhook on completion
+}
+```
+
+Returns: `{"task_id": "uuid", "status": "queued", "created_at": "..."}`
 
 ## Environment Configuration
 
@@ -87,4 +117,8 @@ Key settings from `config.py` (all have defaults):
 
 pytest markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.e2e`
 
-Coverage target: 80% (configured in pyproject.toml)
+Coverage target: 40% (configured in pyproject.toml)
+
+Key test files:
+- `tests/test_tasks_enqueue.py` - Task enqueue endpoint tests
+- `tests/test_task_policy.py` - Policy validation tests

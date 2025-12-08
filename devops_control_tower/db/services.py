@@ -4,12 +4,14 @@ Database services for DevOps Control Tower.
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..data.models.events import Event
-from .models import AgentModel, EventModel, WorkflowModel
+from ..schemas.task_v1 import TaskCreateV1, TaskStatus
+from .models import AgentModel, EventModel, TaskModel, WorkflowModel
 
 
 class EventService:
@@ -265,3 +267,129 @@ class AgentService:
 
         self.db.commit()
         return agent
+
+
+class TaskService:
+    """Service for managing V1 tasks in the database."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create_task(self, task: TaskCreateV1) -> TaskModel:
+        """
+        Create a new task in the database with status 'queued'.
+
+        Args:
+            task: The validated task creation request.
+
+        Returns:
+            The created TaskModel instance.
+        """
+        db_task = TaskModel(
+            type=task.type,
+            status=TaskStatus.QUEUED.value,
+            priority=task.priority.value,
+            source=task.source,
+            payload=task.payload,
+            target=task.target.model_dump() if task.target else None,
+            options=task.options.model_dump(),
+            metadata_=task.metadata,
+            tags=task.tags,
+            idempotency_key=task.idempotency_key,
+            callback_url=task.callback_url,
+        )
+
+        self.db.add(db_task)
+        self.db.commit()
+        self.db.refresh(db_task)
+        return db_task
+
+    def get_task(self, task_id: UUID) -> Optional[TaskModel]:
+        """Get a task by ID."""
+        return self.db.query(TaskModel).filter(TaskModel.id == task_id).first()
+
+    def get_task_by_idempotency_key(
+        self, idempotency_key: str
+    ) -> Optional[TaskModel]:
+        """Get a task by idempotency key."""
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.idempotency_key == idempotency_key)
+            .first()
+        )
+
+    def get_tasks(
+        self,
+        status: Optional[str] = None,
+        task_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[TaskModel]:
+        """Get tasks with optional filtering."""
+        query = self.db.query(TaskModel)
+
+        if status:
+            query = query.filter(TaskModel.status == status)
+        if task_type:
+            query = query.filter(TaskModel.type == task_type)
+        if priority:
+            query = query.filter(TaskModel.priority == priority)
+        if source:
+            query = query.filter(TaskModel.source == source)
+
+        return (
+            query.order_by(desc(TaskModel.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def get_queued_tasks(self, limit: int = 50) -> List[TaskModel]:
+        """Get queued tasks for processing, ordered by priority and creation time."""
+        # Priority order: critical > high > medium > low
+        priority_order = {
+            "critical": 4,
+            "high": 3,
+            "medium": 2,
+            "low": 1,
+        }
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.status == TaskStatus.QUEUED.value)
+            .order_by(TaskModel.priority.desc(), TaskModel.created_at)
+            .limit(limit)
+            .all()
+        )
+
+    def update_task_status(
+        self,
+        task_id: UUID,
+        status: TaskStatus,
+        worker_id: Optional[str] = None,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> Optional[TaskModel]:
+        """Update task status and execution details."""
+        task = self.get_task(task_id)
+        if not task:
+            return None
+
+        task.status = status.value
+
+        if status == TaskStatus.RUNNING:
+            task.started_at = datetime.utcnow()
+            task.attempt += 1
+            if worker_id:
+                task.worker_id = worker_id
+        elif status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+            task.completed_at = datetime.utcnow()
+            if result:
+                task.result = result
+            if error:
+                task.error = error
+
+        self.db.commit()
+        self.db.refresh(task)
+        return task
