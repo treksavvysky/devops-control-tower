@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..data.models.events import Event
 from ..schemas.task_v1 import TaskCreateV1, TaskStatus
+from ..schemas.task_v1 import TaskCreateV1
 from .models import AgentModel, EventModel, TaskModel, WorkflowModel
 
 
@@ -270,33 +271,42 @@ class AgentService:
 
 
 class TaskService:
-    """Service for managing V1 tasks in the database."""
+    """Service for managing tasks in the database (JCT V1 Task Spec)."""
 
     def __init__(self, db: Session):
         self.db = db
 
-    def create_task(self, task: TaskCreateV1) -> TaskModel:
-        """
-        Create a new task in the database with status 'queued'.
+    def create_task(self, task_spec: TaskCreateV1) -> TaskModel:
+        """Create a new task from V1 spec."""
+        # Check for existing task with same idempotency key
+        if task_spec.idempotency_key:
+            existing = self.get_task_by_idempotency_key(task_spec.idempotency_key)
+            if existing:
+                return existing
 
-        Args:
-            task: The validated task creation request.
-
-        Returns:
-            The created TaskModel instance.
-        """
         db_task = TaskModel(
-            type=task.type,
-            status=TaskStatus.QUEUED.value,
-            priority=task.priority.value,
-            source=task.source,
-            payload=task.payload,
-            target=task.target.model_dump() if task.target else None,
-            options=task.options.model_dump(),
-            metadata_=task.metadata,
-            tags=task.tags,
-            idempotency_key=task.idempotency_key,
-            callback_url=task.callback_url,
+            version=task_spec.version,
+            idempotency_key=task_spec.idempotency_key,
+            # requested_by
+            requested_by_kind=task_spec.requested_by.kind,
+            requested_by_id=task_spec.requested_by.id,
+            requested_by_label=task_spec.requested_by.label,
+            # task definition
+            objective=task_spec.objective,
+            operation=task_spec.operation,
+            # target
+            target_repo=task_spec.target.repo,
+            target_ref=task_spec.target.ref,
+            target_path=task_spec.target.path,
+            # constraints
+            time_budget_seconds=task_spec.constraints.time_budget_seconds,
+            allow_network=task_spec.constraints.allow_network,
+            allow_secrets=task_spec.constraints.allow_secrets,
+            # data
+            inputs=task_spec.inputs,
+            task_metadata=task_spec.metadata,
+            # status
+            status="pending",
         )
 
         self.db.add(db_task)
@@ -304,7 +314,7 @@ class TaskService:
         self.db.refresh(db_task)
         return db_task
 
-    def get_task(self, task_id: UUID) -> Optional[TaskModel]:
+    def get_task(self, task_id: str) -> Optional[TaskModel]:
         """Get a task by ID."""
         return self.db.query(TaskModel).filter(TaskModel.id == task_id).first()
 
@@ -321,9 +331,9 @@ class TaskService:
     def get_tasks(
         self,
         status: Optional[str] = None,
-        task_type: Optional[str] = None,
-        priority: Optional[str] = None,
-        source: Optional[str] = None,
+        operation: Optional[str] = None,
+        requester_kind: Optional[str] = None,
+        target_repo: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[TaskModel]:
@@ -338,6 +348,12 @@ class TaskService:
             query = query.filter(TaskModel.priority == priority)
         if source:
             query = query.filter(TaskModel.source == source)
+        if operation:
+            query = query.filter(TaskModel.operation == operation)
+        if requester_kind:
+            query = query.filter(TaskModel.requested_by_kind == requester_kind)
+        if target_repo:
+            query = query.filter(TaskModel.target_repo == target_repo)
 
         return (
             query.order_by(desc(TaskModel.created_at))
@@ -346,50 +362,61 @@ class TaskService:
             .all()
         )
 
-    def get_queued_tasks(self, limit: int = 50) -> List[TaskModel]:
-        """Get queued tasks for processing, ordered by priority and creation time."""
-        # Priority order: critical > high > medium > low
-        priority_order = {
-            "critical": 4,
-            "high": 3,
-            "medium": 2,
-            "low": 1,
-        }
-        return (
-            self.db.query(TaskModel)
-            .filter(TaskModel.status == TaskStatus.QUEUED.value)
-            .order_by(TaskModel.priority.desc(), TaskModel.created_at)
-            .limit(limit)
-            .all()
-        )
-
     def update_task_status(
         self,
-        task_id: UUID,
-        status: TaskStatus,
-        worker_id: Optional[str] = None,
+        task_id: str,
+        status: str,
+        assigned_to: Optional[str] = None,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
+        trace_path: Optional[str] = None,
     ) -> Optional[TaskModel]:
         """Update task status and execution details."""
         task = self.get_task(task_id)
         if not task:
             return None
 
-        task.status = status.value
+        task.status = status
 
-        if status == TaskStatus.RUNNING:
-            task.started_at = datetime.utcnow()
-            task.attempt += 1
-            if worker_id:
-                task.worker_id = worker_id
-        elif status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-            task.completed_at = datetime.utcnow()
-            if result:
-                task.result = result
-            if error:
-                task.error = error
+        # Update timestamps based on status
+        now = datetime.utcnow()
+        if status == "queued" and not task.queued_at:
+            task.queued_at = now
+        elif status == "running" and not task.started_at:
+            task.started_at = now
+        elif status in ["completed", "failed", "cancelled"] and not task.completed_at:
+            task.completed_at = now
+
+        # Update other fields
+        if assigned_to:
+            task.assigned_to = assigned_to
+        if result:
+            task.result = result
+        if error:
+            task.error = error
+        if trace_path:
+            task.trace_path = trace_path
 
         self.db.commit()
         self.db.refresh(task)
         return task
+
+    def get_pending_tasks(self, limit: int = 50) -> List[TaskModel]:
+        """Get pending tasks for processing."""
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.status == "pending")
+            .order_by(TaskModel.created_at)
+            .limit(limit)
+            .all()
+        )
+
+    def get_queued_tasks(self, limit: int = 50) -> List[TaskModel]:
+        """Get queued tasks ready for execution."""
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.status == "queued")
+            .order_by(TaskModel.created_at)
+            .limit(limit)
+            .all()
+        )

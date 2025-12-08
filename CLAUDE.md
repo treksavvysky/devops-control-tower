@@ -57,6 +57,7 @@ devops_control_tower/
 ├── policies/
 │   ├── __init__.py          # Policy exports
 │   └── task_policy.py       # Task intake policy validation (allow/deny rules)
+│   ├── task_v1.py 
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
 │   ├── models.py            # ORM models (Event, Workflow, Agent, TaskModel)
@@ -73,13 +74,33 @@ devops_control_tower/
 - **Database**: SQLite by default (`sqlite:///./devops_control_tower.db`). Set `DATABASE_URL` env var for Postgres. Alembic auto-converts async drivers to sync.
 - **Agents**: Inherit from `BaseAgent` (simple) or `AIAgent` (LLM-powered). Must implement `_initialize()`, `_cleanup()`, `handle_event()`.
 - **Task Intake (Stage 1)**: Tasks are submitted via `POST /tasks/enqueue`, validated against schema and policy, persisted with status `queued`. No execution yet.
+- **Task Spec V1**: Canonical schema defined in `docs/specs/task-spec-v1.md`. All tasks use structured `requested_by` (kind/id/label), required `objective`, normalized `operation` (code_change|docs|analysis|ops), and conservative `constraints` defaults.
 
 ## API Endpoints
 
+### System
 - `GET /health`, `GET /healthz` - Health checks returning `{"status": "ok"}`
 - `GET /status` - System status including orchestrator and agent states
-- `GET /agents`, `GET /agents/{name}` - Agent listing and details
+- `GET /version` - Application version
+
+### Tasks (JCT V1 Task Spec)
+- `POST /tasks/enqueue` - Enqueue a task for execution (V0 spine: enqueue → DB row → Worker → Trace)
+- `GET /tasks` - List tasks with optional filtering (status, operation, requester_kind, target_repo)
+- `GET /tasks/{task_id}` - Get specific task details
+- `PATCH /tasks/{task_id}/status` - Update task status and execution details
+
+### Agents
+- `GET /agents` - List all registered agents
+- `GET /agents/{name}` - Get detailed agent information
+- `POST /agents/{name}/start` - Start a specific agent
+- `POST /agents/{name}/stop` - Stop a specific agent
+
+### Events
+- `GET /events` - List events with optional filtering
+- `GET /events/{event_id}` - Get specific event
 - `POST /events` - Create and queue events
+
+### Workflows
 - `GET /workflows` - List active workflows
 - `POST /tasks/enqueue` - **Stage 1** Task intake endpoint (validates, persists, returns task_id)
 
@@ -103,6 +124,7 @@ devops_control_tower/
 ```
 
 Returns: `{"task_id": "uuid", "status": "queued", "created_at": "..."}`
+- `GET /workflows/{workflow_id}` - Get specific workflow details
 
 ## Environment Configuration
 
@@ -113,6 +135,38 @@ Key settings from `config.py` (all have defaults):
 - `API_PORT` - Server port (default: 8000)
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` - For AI agents
 
+## JCT V1 Task Specification
+
+The canonical task spec is fully documented in `docs/specs/task-spec-v1.md`. Key fields:
+
+```json
+{
+  "version": "1.0",
+  "requested_by": {"kind": "human|agent|system", "id": "...", "label": "..."},
+  "objective": "Clear statement of success criteria",
+  "operation": "code_change|docs|analysis|ops",
+  "target": {"repo": "owner/name", "ref": "main", "path": ""},
+  "constraints": {
+    "time_budget_seconds": 900,
+    "allow_network": false,
+    "allow_secrets": false
+  },
+  "inputs": {},
+  "metadata": {}
+}
+```
+
+**Database Schema:**
+- `TaskModel` in `db/models.py` - Flattened structure with all V1 fields
+- `TaskService` in `db/services.py` - CRUD with idempotency support
+- Statuses: `pending` → `queued` → `running` → `completed`/`failed`/`cancelled`
+- Note: SQLAlchemy reserves `metadata`, so DB column is `task_metadata` (mapped back to `metadata` in `to_dict()`)
+
+**Validation:**
+- Pydantic models in `schemas/task_v1.py` enforce all constraints
+- `operation` uses `Literal` type for strict validation (only 4 allowed values)
+- Conservative defaults: 15min timeout, no network, no secrets
+
 ## Testing
 
 pytest markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.e2e`
@@ -122,3 +176,4 @@ Coverage target: 40% (configured in pyproject.toml)
 Key test files:
 - `tests/test_tasks_enqueue.py` - Task enqueue endpoint tests
 - `tests/test_task_policy.py` - Policy validation tests
+

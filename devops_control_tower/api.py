@@ -285,6 +285,104 @@ async def create_event(
         raise HTTPException(status_code=500, detail=f"Failed to create event: {str(e)}")
 
 
+# Task Management Endpoints (JCT V1 Task Spec)
+@app.post("/tasks/enqueue", status_code=201)
+async def enqueue_task(
+    task_spec: TaskCreateV1, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Enqueue a task for execution.
+
+    This endpoint implements the JCT V1 Task Spec. It creates a database row
+    for the task and queues it for processing by a worker.
+
+    For v0 spine: /tasks/enqueue → DB row → Worker → Trace folder
+    """
+    try:
+        task_service = TaskService(db)
+        db_task = task_service.create_task(task_spec)
+
+        # For v0 spine, we create the DB row and immediately mark it as queued
+        # Later: actual worker orchestration will be implemented
+        task_service.update_task_status(str(db_task.id), "queued")
+
+        return {
+            "status": "success",
+            "task_id": str(db_task.id),
+            "message": "Task enqueued successfully",
+            "task": db_task.to_dict(),
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid task data: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue task: {str(e)}")
+
+
+@app.get("/tasks")
+async def list_tasks(
+    status: Optional[str] = None,
+    operation: Optional[str] = None,
+    requester_kind: Optional[str] = None,
+    target_repo: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List tasks with optional filtering."""
+    task_service = TaskService(db)
+    tasks = task_service.get_tasks(
+        status=status,
+        operation=operation,
+        requester_kind=requester_kind,
+        target_repo=target_repo,
+        limit=limit,
+        offset=offset,
+    )
+
+    return [task.to_dict() for task in tasks]
+
+
+@app.get("/tasks/{task_id}")
+async def get_task(task_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Get a specific task by ID."""
+    task_service = TaskService(db)
+    task = task_service.get_task(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return task.to_dict()
+
+
+@app.patch("/tasks/{task_id}/status")
+async def update_task_status(
+    task_id: str,
+    status: str,
+    assigned_to: Optional[str] = None,
+    result: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+    trace_path: Optional[str] = None,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Update task status and execution details."""
+    task_service = TaskService(db)
+    task = task_service.update_task_status(
+        task_id,
+        status=status,
+        assigned_to=assigned_to,
+        result=result,
+        error=error,
+        trace_path=trace_path,
+    )
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return {"status": "success", "task": task.to_dict()}
+
+
 # Workflow Management Endpoints
 @app.get("/workflows")
 async def list_workflows(
