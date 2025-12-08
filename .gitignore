@@ -155,3 +155,5 @@ dmypy.json
 activate_env.sh
 
 _local/
+.venv-test/
+
