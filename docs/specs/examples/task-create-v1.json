@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "idempotency_key": "2025-12-08T14:05:00Z-devops-ctl-001",
+  "requested_by": { "kind": "human", "id": "george", "label": "George" },
+  "objective": "Add a /healthz endpoint that returns {\"status\":\"ok\"} and a pytest that verifies the response.",
+  "operation": "code_change",
+  "target": { "repo": "george/devops-control-tower", "ref": "main", "path": "" },
+  "constraints": { "time_budget_seconds": 900, "allow_network": false, "allow_secrets": false },
+  "inputs": {},
+  "metadata": { "tags": ["stage-1", "demo"] }
+}

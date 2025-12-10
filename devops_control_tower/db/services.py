@@ -2,16 +2,17 @@
 Database services for DevOps Control Tower.
 """
 
+import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 from uuid import UUID
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..data.models.events import Event
 from ..schemas.task_v1 import TaskCreateV1, TaskStatus
-from ..schemas.task_v1 import TaskCreateV1
+from ..schemas.task_v1 import TaskCreateLegacyV1
 from .models import AgentModel, EventModel, TaskModel, WorkflowModel
 
 
@@ -276,7 +277,7 @@ class TaskService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_task(self, task_spec: TaskCreateV1) -> TaskModel:
+    def create_task(self, task_spec: TaskCreateLegacyV1) -> TaskModel:
         """Create a new task from V1 spec."""
         # Check for existing task with same idempotency key
         if task_spec.idempotency_key:
@@ -314,8 +315,14 @@ class TaskService:
         self.db.refresh(db_task)
         return db_task
 
-    def get_task(self, task_id: str) -> Optional[TaskModel]:
+    def get_task(self, task_id: Union[str, uuid.UUID]) -> Optional[TaskModel]:
         """Get a task by ID."""
+        # Convert string to UUID if needed for SQLite compatibility
+        if isinstance(task_id, str):
+            try:
+                task_id = uuid.UUID(task_id)
+            except ValueError:
+                return None
         return self.db.query(TaskModel).filter(TaskModel.id == task_id).first()
 
     def get_task_by_idempotency_key(

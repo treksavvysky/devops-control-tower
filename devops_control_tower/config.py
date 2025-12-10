@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     event_batch_size: int = Field(default=100, env="EVENT_BATCH_SIZE")
     event_processing_interval: int = Field(default=5, env="EVENT_PROCESSING_INTERVAL")
 
+    # Policy Configuration
+    jct_allowed_repo_prefixes: str = Field(
+        default="",
+        env="JCT_ALLOWED_REPO_PREFIXES",
+        description="Comma-separated list of allowed repository namespace prefixes (e.g., 'myorg/,anotherorg/'). Empty string = deny all.",
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

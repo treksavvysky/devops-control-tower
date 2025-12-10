@@ -1,0 +1,156 @@
+STAGE-02-SUMMARY — Worker Execution & Trace Foundation
+Stage 2 Description
+Stage 2 transforms JCT from a passive task intake system into an active execution pipeline. The system gains its first operational worker capable of claiming one queued task, materializing a filesystem trace, emitting minimal execution artifacts, and resolving the task lifecycle with authoritative status, timestamps, result, error, and trace path.
+
+
+This stage establishes the execution skeleton only: claim → run → trace → resolve.
+
+It does not introduce real operations, sandboxing, tools, networking, or secrets.
+
+The objective is to make task execution observable, deterministic, and inspectable across both database and filesystem.
+
+After Stage 2, JCT will possess its first true “heartbeat”: tasks no longer merely exist — they move, leave evidence, and conclude.
+
+Stage 2 Core Objectives
+Introduce a worker process that runs independently from the API.
+
+Enable the worker to safely claim exactly one queued task.
+
+Enforce exclusive task ownership during execution.
+
+Transition tasks into a running state with a start timestamp.
+
+Create a unique trace directory per execution.
+
+Persist the trace directory path into trace_path on the task.
+
+Write a serialized snapshot of the task into the trace folder.
+
+Write a minimal execution log into the trace folder.
+
+Write a minimal structured success result on completion.
+
+Write a structured error payload on execution failure.
+
+Enforce that exactly one of result or error is present per run.
+
+Transition tasks into a final completed or failed state.
+
+Record a finished timestamp on resolution.
+
+Guarantee consistency between database state and filesystem trace.
+
+Preserve partial trace artifacts on failure when possible.
+
+Provide clear stdout logging during worker execution.
+
+Expose a single, simple local execution entrypoint for one worker cycle.
+
+Enable full manual verification via POST /tasks/enqueue, Local worker execution, GET /tasks/{id}, and Direct trace folder inspection.
+
+Maintain strict execution-skeleton scope only (no sandboxing, no tools, no side effects).
+
+Stage 2 Sub-Stage Work Breakdown
+Stage 2.1 — Worker Bootstrapping
+Establish the worker as a first-class executable process. The worker must start independently, load configuration, and successfully connect to the same database used by the API. No task behavior is introduced yet.
+
+
+
+
+Exit Condition: The worker can be started locally and confirms database connectivity.
+
+Stage 2.2 — Safe Task Claiming
+Enable the worker to locate one queued task and claim it with exclusive ownership. The system must guarantee mutual exclusion so that no two workers can process the same task concurrently. No filesystem work or state transitions occur beyond the claim.
+
+
+
+
+Exit Condition: A queued task can be claimed once and only once.
+
+Stage 2.3 — Lifecycle State Transition
+Once claimed, the task officially enters execution. The worker updates the task to a running state and records a start timestamp. The task becomes visibly active through GET /tasks/{id}.
+
+
+
+
+Exit Condition: A claimed task reliably transitions to a running state with a start time.
+
+Stage 2.4 — Trace Folder Initialization
+For each running task, the worker creates a unique trace directory on disk and persists the directory path into trace_path on the task record. This establishes the permanent physical execution record.
+
+
+
+Exit Condition: Every running task has a real filesystem trace directory and a valid trace_path.
+
+Stage 2.5 — Trace Artifact Emission
+The worker writes minimal artifacts into the trace folder, sufficient to reconstruct the run:
+
+A serialized snapshot of the full task as seen by the worker.
+
+A minimal execution log describing the worker’s actions.
+
+No business logic is performed.
+
+
+Exit Condition: Human-readable trace artifacts exist and accurately reflect the execution.
+
+Stage 2.6 — Result and Error Recording
+Introduce formal outcome semantics:
+
+Successful executions write a minimal structured result.
+
+Failed executions write a structured error.
+
+Exactly one of these is present for any resolved task.
+
+
+Exit Condition: Every execution produces a definitive success or failure outcome.
+
+Stage 2.7 — Final State Resolution
+The worker completes the lifecycle:
+
+Status transitions to completed or failed.
+
+Finished timestamp is recorded.
+
+All execution fields (status, timestamps, result, error, trace_path) form a consistent narrative.
+
+After this point, the task is terminal.
+
+
+Exit Condition: A task can fully traverse queued → running → completed/failed with full trace and timestamps.
+
+Stage 2.8 — Local Execution Harness
+Provide a single obvious way for a developer to run one full worker cycle locally. The manual verification loop must be fast and deterministic:
+
+Enqueue a task.
+
+Run the worker once locally.
+
+Verify updated state via GET /tasks/{id}.
+
+Inspect the generated trace folder on disk.
+
+
+Exit Condition: A developer can complete the full Stage 2 execution loop manually in under one minute.
+
+Stage 2 Completion Definition
+Stage 2 is complete when:
+
+A worker can safely claim and execute exactly one task.
+
+Every execution produces:
+
+A terminal status.
+
+Start and finished timestamps.
+
+Exactly one of result or error.
+
+A real filesystem trace directory with artifacts.
+
+The full lifecycle is human-verifiable via API + disk.
+
+No sandboxing, tools, network, or secrets are involved.
+
+At this point, JCT officially transitions from task intake service to observable execution pipeline.

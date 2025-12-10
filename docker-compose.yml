@@ -1,15 +1,23 @@
-version: '3.8'
-
 services:
   control-tower:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
+<<<<<<< HEAD
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql+psycopg2://devops:devops@postgres:5432/devops_control_tower
       - REDIS_URL=redis://redis:6379/0
+=======
+      - ENVIRONMENT=${ENVIRONMENT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JCT_ALLOWED_REPO_PREFIXES=${JCT_ALLOWED_REPO_PREFIXES}
+>>>>>>> d5df021 (finish stage 1 - adding end points to add and retreive task. fix password auth to db)
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
@@ -30,19 +38,29 @@ services:
 
   postgres:
     image: postgres:15-alpine
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: devops_control_tower
-      POSTGRES_USER: devops
-      POSTGRES_PASSWORD: devops
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
+<<<<<<< HEAD
       test: ["CMD-SHELL", "pg_isready -U devops -d devops_control_tower"]
       interval: 5s
       timeout: 5s
       retries: 5
+=======
+      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+>>>>>>> d5df021 (finish stage 1 - adding end points to add and retreive task. fix password auth to db)
     restart: unless-stopped
 
 volumes:

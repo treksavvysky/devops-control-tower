@@ -333,7 +333,7 @@ python -m devops_control_tower.main
 ## Key Contacts & Resources
 
 ### Development Resources
-- **Main Repository**: `/Users/georgeloudon/Projects/Claude/devops-control-tower`
+- **Main Repository**: `~/Projects/devops-control-tower`
 - **Documentation**: `docs/` directory
 - **Issue Tracking**: GitHub Issues (once repository is published)
 

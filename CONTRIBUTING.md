@@ -27,9 +27,9 @@ Pull requests are the best way to propose changes to the codebase. We actively w
 
 In short, when you submit code changes, your submissions are understood to be under the same [MIT License](http://choosealicense.com/licenses/mit/) that covers the project. Feel free to contact the maintainers if that's a concern.
 
-## Report bugs using GitHub's [issue tracker](https://github.com/georgeloudon/devops-control-tower/issues)
+## Report bugs using GitHub's [issue tracker](https://github.com/treksavvysky/devops-control-tower/issues)
 
-We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/georgeloudon/devops-control-tower/issues/new); it's that easy!
+We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/treksavvysky/devops-control-tower/issues/new); it's that easy!
 
 ## Write bug reports with detail, background, and sample code
 
@@ -47,7 +47,7 @@ We use GitHub issues to track public bugs. Report a bug by [opening a new issue]
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/georgeloudon/devops-control-tower.git
+   git clone https://github.com/treksavvysky/devops-control-tower.git
    cd devops-control-tower
    ```
 

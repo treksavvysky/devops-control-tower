@@ -38,13 +38,31 @@ def get_database_url(raw_url: Optional[str] = None) -> str:
     """Return a database URL with a guaranteed synchronous driver."""
 
     url = make_url(raw_url or os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL)
-    synced_url = _ensure_sync_driver(url)
-    # Use render_as_string to preserve the password (str() masks it)
-    return synced_url.render_as_string(hide_password=False)
+    # Use render_as_string with hide_password=False to preserve the actual password
+    # str(url) would mask the password with *** which breaks authentication
+    return _ensure_sync_driver(url).render_as_string(hide_password=False)
 
 
 _engine: Optional[Engine] = None
 
+# Create engine with proper configuration
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite configuration for development/testing
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    # PostgreSQL configuration for production
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=3600,
+        connect_args={"connect_timeout": 10},
+    )
 
 def get_engine() -> Engine:
     """

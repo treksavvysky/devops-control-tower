@@ -20,8 +20,12 @@ COPY migrations ./migrations
 COPY alembic.ini ./
 # 2) Install the package
 RUN pip install --no-cache-dir -e .
-# or, if you don’t need editable inside Docker:
+# or, if you don't need editable inside Docker:
 # RUN pip install --no-cache-dir .
+
+# Copy entrypoint script and make executable BEFORE switching user
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod 755 /docker-entrypoint.sh
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash devops && \
@@ -36,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
-CMD ["python", "-m", "devops_control_tower.main"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

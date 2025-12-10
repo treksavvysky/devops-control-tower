@@ -27,6 +27,8 @@ from .schemas.task_v1 import (
     TaskResponseV1,
     TaskStatus,
 )
+from .policy import PolicyError, evaluate as evaluate_policy
+from .schemas.task_v1 import TaskCreateLegacyV1
 
 # Initialize structured logging
 logger = structlog.get_logger()
@@ -288,7 +290,7 @@ async def create_event(
 # Task Management Endpoints (JCT V1 Task Spec)
 @app.post("/tasks/enqueue", status_code=201)
 async def enqueue_task(
-    task_spec: TaskCreateV1, db: Session = Depends(get_db)
+    task_spec: TaskCreateV1 | TaskCreateLegacyV1, db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Enqueue a task for execution.
@@ -296,11 +298,35 @@ async def enqueue_task(
     This endpoint implements the JCT V1 Task Spec. It creates a database row
     for the task and queues it for processing by a worker.
 
+    Flow:
+    1. Schema validation (handled by Pydantic/FastAPI)
+    2. Policy evaluation (governance + normalization)
+    3. Persist normalized task with status="queued"
+    4. Return task_id and status
+
     For v0 spine: /tasks/enqueue → DB row → Worker → Trace folder
     """
+    # Step 1: Policy evaluation - validates and normalizes the task
+    try:
+        # Normalize: legacy → canonical (canonical should be preferred by union order)
+        if isinstance(task_spec, TaskCreateLegacyV1):
+            canonical_task = TaskCreateV1.model_validate(
+            task_spec.model_dump(exclude_none=True)
+            )
+        else:
+            canonical_task = task_spec
+        normalized_task = evaluate_policy(canonical_task)
+    except PolicyError as e:
+        logger.warning(f"Policy violation: {e.code} - {e.message}")
+        raise HTTPException(
+            status_code=422,
+            detail=e.to_dict(),
+        )
+
+    # Step 2: Persist the normalized task
     try:
         task_service = TaskService(db)
-        db_task = task_service.create_task(task_spec)
+        db_task = task_service.create_task(normalized_task)
 
         # For v0 spine, we create the DB row and immediately mark it as queued
         # Later: actual worker orchestration will be implemented

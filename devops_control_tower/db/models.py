@@ -442,11 +442,11 @@ class TaskModel(Base):
     trace_path = Column(String(512), nullable=True)  # Path to trace folder
 
     # Indexes for common queries
+    # Note: target_repo index is already created via `index=True` on the column definition
     __table_args__ = (
         Index("ix_tasks_status_operation", "status", "operation"),
         Index("ix_tasks_created_at", "created_at"),
         Index("ix_tasks_requester", "requested_by_kind", "requested_by_id"),
-        Index("ix_tasks_target_repo", "target_repo"),
         UniqueConstraint("idempotency_key", name="uq_tasks_idempotency_key"),
     )
 

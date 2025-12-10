@@ -183,7 +183,7 @@ system packages are needed for development.
 ### Quick Setup
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/devops-control-tower.git
+git clone https://github.com/treksavvysky/devops-control-tower.git
 cd devops-control-tower
 
 # Create and activate a local virtual environment
@@ -239,7 +239,7 @@ Track what matters most:
 ## 📞 Support & Community
 
 - **Documentation**: [docs.devops-control-tower.com](https://docs.devops-control-tower.com)
-- **Issues**: [GitHub Issues](https://github.com/your-org/devops-control-tower/issues)
+- **Issues**: [GitHub Issues](https://github.com/treksavvysky/devops-control-tower/issues)
 - **Discord**: [Community Discord](https://discord.gg/devops-control-tower)
 - **Email**: support@devops-control-tower.com
 

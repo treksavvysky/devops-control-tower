@@ -8,6 +8,17 @@ DevOps Control Tower (JCT - Jules Control Tower) is an orchestration backbone fo
 
 **Current Focus (v0 Spine):** The minimal viable path is `/tasks/enqueue → DB row → Worker → Trace folder`. Advanced features (LLM workflows, monitoring agents, event routing) are disabled until this spine is validated.
 
+## Stage-Based Development
+
+Development proceeds in stages. Each stage has a summary document tracking progress, decisions, and verification evidence.
+
+**Stage Progress Documents:**
+- `STAGE-01-SUMMARY.md` - Task Contract + Intake Gate (✅ COMPLETE)
+
+**Stage 1 (Complete):** V1 Task Spec contract defined, policy gate implemented, `POST /tasks/enqueue` persists validated tasks, idempotency enforced, `GET /tasks/{id}` retrieves stored records. All 100 tests passing.
+
+**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts.
+
 ## Common Commands
 
 ```bash
@@ -52,6 +63,7 @@ devops_control_tower/
 │   ├── base.py              # BaseAgent (abstract) and AIAgent (LLM-enabled)
 │   └── implementations/     # Concrete agent implementations
 ├── schemas/
+<<<<<<< HEAD
 │   ├── __init__.py          # Schema exports
 │   └── task_v1.py           # V1 Task Pydantic models (TaskCreateV1, TaskResponseV1)
 ├── policies/
@@ -61,6 +73,15 @@ devops_control_tower/
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
 │   ├── models.py            # ORM models (Event, Workflow, Agent, TaskModel)
+=======
+│   └── task_v1.py           # Pydantic models for V1 Task Spec
+├── policy/
+│   ├── __init__.py          # Exports PolicyError, evaluate
+│   └── task_gate.py         # Pure policy evaluation + normalization
+├── db/
+│   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
+│   ├── models.py            # ORM models (Event, Workflow, Agent, Task)
+>>>>>>> d5df021 (finish stage 1 - adding end points to add and retreive task. fix password auth to db)
 │   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
 └── data/models/
@@ -75,6 +96,7 @@ devops_control_tower/
 - **Agents**: Inherit from `BaseAgent` (simple) or `AIAgent` (LLM-powered). Must implement `_initialize()`, `_cleanup()`, `handle_event()`.
 - **Task Intake (Stage 1)**: Tasks are submitted via `POST /tasks/enqueue`, validated against schema and policy, persisted with status `queued`. No execution yet.
 - **Task Spec V1**: Canonical schema defined in `docs/specs/task-spec-v1.md`. All tasks use structured `requested_by` (kind/id/label), required `objective`, normalized `operation` (code_change|docs|analysis|ops), and conservative `constraints` defaults.
+- **Policy Gate**: Pure policy module (`policy/task_gate.py`) validates and normalizes tasks before persistence. The `evaluate()` function returns a normalized `TaskCreateLegacyV1` or raises `PolicyError` with stable error codes.
 
 ## API Endpoints
 
@@ -134,6 +156,7 @@ Key settings from `config.py` (all have defaults):
 - `DEBUG` - Enable debug mode
 - `API_PORT` - Server port (default: 8000)
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` - For AI agents
+- `JCT_ALLOWED_REPO_PREFIXES` - Comma-separated list of allowed repo prefixes (e.g., `myorg/,partnerorg/`). Empty = deny all.
 
 ## JCT V1 Task Specification
 
@@ -166,6 +189,37 @@ The canonical task spec is fully documented in `docs/specs/task-spec-v1.md`. Key
 - Pydantic models in `schemas/task_v1.py` enforce all constraints
 - `operation` uses `Literal` type for strict validation (only 4 allowed values)
 - Conservative defaults: 15min timeout, no network, no secrets
+
+**Policy Gate:**
+- Located in `policy/task_gate.py`
+- `evaluate(task: TaskCreateLegacyV1, config: PolicyConfig = None) -> TaskCreateLegacyV1`
+- Raises `PolicyError(code, message)` on violation
+- Policy rules:
+  - `operation` must be one of: `code_change`, `docs`, `analysis`, `ops`
+  - `target.repo` must match allowed prefixes (configured via `JCT_ALLOWED_REPO_PREFIXES` env var, comma-separated, e.g., `myorg/,partnerorg/`). Empty or unset = deny all.
+  - `constraints.time_budget_seconds` must be 30-86400
+  - `allow_network=true` is DENIED in V1
+  - `allow_secrets=true` is DENIED in V1
+- Normalization:
+  - Repository: lowercase, strip `.git` suffix
+  - Objective: trim whitespace
+  - Default `target.ref="main"`, `target.path=""`
+- Error codes: `INVALID_OPERATION`, `REPO_NOT_ALLOWED`, `TIME_BUDGET_TOO_LOW`, `TIME_BUDGET_TOO_HIGH`, `NETWORK_ACCESS_DENIED`, `SECRETS_ACCESS_DENIED`
+
+**Compatibility Layer (temporary, will be removed in V2):**
+- `type` accepted as alias for `operation`
+- `payload` accepted as alias for `inputs`
+- `target.repository` accepted as alias for `target.repo`
+- Canonical fields take precedence when both are provided
+- Only canonical fields are persisted to DB
+
+## Contract Governance (IMPORTANT)
+
+**Source of Truth:** The Pydantic model `TaskCreateLegacyV1` in `schemas/task_v1.py` is the contract for `POST /tasks/enqueue`. The code is the source of truth, not the markdown documentation. Changing the model shape is a breaking change.
+
+**Read-Only Spec Document:** Do NOT modify `docs/specs/task-spec-v1.md` unless explicitly asked by the user. This document is read-only by convention to prevent spec drift.
+
+**Contract Snapshot Test:** The test `tests/test_contract_snapshot.py` asserts the canonical fields exist in the JSON schema. If CI turns red on this test, a breaking change was introduced.
 
 ## Testing
 
