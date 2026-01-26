@@ -14,10 +14,14 @@ Development proceeds in stages. Each stage has a summary document tracking progr
 
 **Stage Progress Documents:**
 - `STAGE-01-SUMMARY.md` - Task Contract + Intake Gate (✅ COMPLETE)
+- `docs/cwom/CWOM-IMPLEMENTATION-PLAN.md` - CWOM v0.1 implementation (✅ Phase 1-4 COMPLETE)
+- `docs/cwom/CWOM-COMPLETION-ROADMAP.md` - Remaining CWOM work + AuditLog
 
 **Stage 1 (Complete):** V1 Task Spec contract defined, policy gate implemented, `POST /tasks/enqueue` persists validated tasks, idempotency enforced, `GET /tasks/{id}` retrieves stored records.
 
-**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts.
+**CWOM v0.1 (Phases 1-4 Complete):** Pydantic schemas, SQLAlchemy models, API endpoints, and Task-CWOM integration all implemented. See CWOM section below for details.
+
+**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts. Also: AuditLog implementation per CWOM-COMPLETION-ROADMAP.md.
 
 ## Common Commands
 
@@ -80,10 +84,12 @@ devops_control_tower/
 │   └── task_gate.py         # Pure policy evaluation + normalization
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
-│   ├── models.py            # ORM models (Event, Workflow, Agent, Task)
+│   ├── models.py            # ORM models (Event, Workflow, Agent, Task, Job, Artifact)
 │   ├── cwom_models.py       # CWOM SQLAlchemy models (7 object types + 6 join tables)
 │   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
+├── worker/                  # Sprint-0 worker implementation (in progress)
+│   └── ...                  # Task execution and trace artifact production
 └── data/models/
     ├── events.py            # Event, EventTypes, EventPriority
     └── workflows.py         # Workflow definitions
@@ -166,6 +172,9 @@ Key test files:
 - `tests/test_contract_snapshot.py` - Schema contract tests
 - `tests/test_cwom_contract.py` - CWOM Pydantic schema contract tests
 - `tests/test_cwom_db_models.py` - CWOM SQLAlchemy model tests
+- `tests/test_cwom_api.py` - CWOM REST API endpoint tests
+- `tests/test_task_cwom_integration.py` - Task-CWOM adapter tests
+- `tests/test_sprint0.py` - Sprint-0 worker and trace tests
 
 ## Canonical Work Object Model (CWOM) v0.1
 
@@ -260,3 +269,107 @@ CWOM objects are persisted via SQLAlchemy models in `db/cwom_models.py`:
 
 ### Contract Governance
 The Pydantic models in `cwom/` are the source of truth. `tests/test_cwom_contract.py` ensures schema stability. Database model tests are in `tests/test_cwom_db_models.py`.
+
+### Task-CWOM Integration (Phase 4)
+
+The task adapter (`cwom/task_adapter.py`) provides bidirectional mapping between JCT V1 Tasks and CWOM objects.
+
+**Mapping Strategy:**
+| JCT V1 Task | CWOM Equivalent |
+|-------------|-----------------|
+| `Task.objective` | `Issue.description` + `Issue.acceptance.criteria` |
+| `Task.operation` | `Issue.type` (code_change→feature, docs→doc, analysis→research, ops→ops) |
+| `Task.target` | `Repo` + `Issue.repo` ref |
+| `Task.constraints` | `ConstraintSnapshot` |
+| `Task.inputs` | `ContextPacket.inputs` |
+| `Task.requested_by` | `Actor` on Issue/Run |
+
+**Using CWOM with Tasks:**
+```python
+from devops_control_tower.cwom.task_adapter import task_to_cwom, issue_to_task
+
+# Convert Task to CWOM objects
+cwom_objects = task_to_cwom(task_spec, db_session)
+# Returns: CWOMObjects(repo, issue, context_packet, constraint_snapshot)
+
+# Convert CWOM objects back to Task format (for API compatibility)
+task_dict = issue_to_task(issue, context_packet, constraint_snapshot, repo)
+```
+
+**API Usage:**
+```bash
+# Enqueue task with CWOM object creation
+POST /tasks/enqueue?create_cwom=true
+
+# Response includes CWOM IDs:
+{
+  "status": "success",
+  "task_id": "...",
+  "task": {...},
+  "cwom": {
+    "repo_id": "...",
+    "issue_id": "...",
+    "context_packet_id": "...",
+    "constraint_snapshot_id": "..."
+  }
+}
+```
+
+**Database Link:**
+- `TaskModel.cwom_issue_id` links tasks to their corresponding CWOM Issue
+- Migration: `d4a9b8c2e5f6_add_cwom_issue_id_to_tasks.py`
+
+### CWOM API Endpoints (Phase 3)
+
+All CWOM objects are accessible via REST API under `/cwom` prefix:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cwom/repos` | POST, GET | Create/list repos |
+| `/cwom/repos/{id}` | GET | Get repo by ID |
+| `/cwom/issues` | POST, GET | Create/list issues |
+| `/cwom/issues/{id}` | GET, PATCH | Get/update issue |
+| `/cwom/context-packets` | POST | Create context packet |
+| `/cwom/context-packets/{id}` | GET | Get context packet (immutable) |
+| `/cwom/constraint-snapshots` | POST, GET | Create/list constraint snapshots |
+| `/cwom/constraint-snapshots/{id}` | GET | Get constraint snapshot (immutable) |
+| `/cwom/doctrine-refs` | POST, GET | Create/list doctrine refs |
+| `/cwom/runs` | POST, GET | Create/list runs |
+| `/cwom/runs/{id}` | GET, PATCH | Get/update run |
+| `/cwom/artifacts` | POST | Create artifact |
+| `/cwom/artifacts/{id}` | GET | Get artifact |
+
+**Immutability:** ContextPacket and ConstraintSnapshot return 405 Method Not Allowed for PUT/PATCH operations.
+
+### CWOM Completion Status
+
+**Assessment Date:** 2026-01-26
+
+| Requirement | Status |
+|------------|--------|
+| Models for all 7 objects | ✅ Complete |
+| Join tables (6 total) | ✅ Complete |
+| Migrations apply cleanly | 🟡 Needs fresh DB test |
+| CRUD tests cover linkage | 🟡 Partial (structure tests, not full round-trip) |
+| AuditLog | ❌ Not implemented |
+
+**Known Issues:**
+1. **trace_id column mismatch**: Migration `e5f6a7b8c9d0` adds `trace_id` to CWOM tables, but models don't define it yet
+2. **Two migration directories**: `/migrations/` and `/devops_control_tower/db/migrations/` - need consolidation
+3. **Core tables**: events, workflows, agents rely on `init_database()`, not alembic
+
+**Roadmap:** See `docs/cwom/CWOM-COMPLETION-ROADMAP.md` for detailed remediation plan.
+
+### Sprint-0: Trace ID and Worker
+
+Sprint-0 adds end-to-end causality tracking via `trace_id`:
+
+**New Tables (migration `e5f6a7b8c9d0`):**
+- `jobs` - Execution tracking with worker assignment
+- `artifacts` - Sprint-0 style outputs (simpler than CWOM artifacts)
+
+**New Columns:**
+- `tasks.trace_id` - Links task to trace
+- `cwom_*.trace_id` - All CWOM tables get trace_id for unified traceability
+
+**Models:** `JobModel` and `ArtifactModel` in `db/models.py`

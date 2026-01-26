@@ -1,140 +1,164 @@
-DevOps Control Tower (JCT) — System Overview for Codex
+# DevOps Control Tower (JCT) — System Overview for AI Agents
 
-Purpose
+## Purpose
 
 The Jules Control Tower (JCT) is the orchestration backbone for an AI-assisted development environment.
 Its job is to manage, execute, and record the flow of tasks through the system, eventually scaling to 60+ tasks per day across multiple agents and repos.
 
-For v0, we only care about the spine:
-
-/tasks/enqueue → Create DB row → Worker picks → Writes trace folder`
+**Current Focus (v0 Spine):**
+```
+/tasks/enqueue → Create DB row → Worker picks → Writes trace folder
+```
 
 Once the spine is proven, the rest of the tower (agents, workflows, observability) becomes incremental muscle layered on top.
 
-⸻
+## Project Status (2026-01-26)
 
-Core Components (Current)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Task API (`/tasks/enqueue`) | ✅ Complete | Stage 1 done |
+| Policy Gate | ✅ Complete | Validates tasks before persistence |
+| CWOM v0.1 Schemas | ✅ Complete | 7 Pydantic models |
+| CWOM v0.1 DB Models | ✅ Complete | SQLAlchemy + 6 join tables |
+| CWOM API Endpoints | ✅ Complete | Full REST API under `/cwom` |
+| Task-CWOM Integration | ✅ Complete | Bidirectional mapping |
+| Worker Loop | 🔄 In Progress | Sprint-0 implementation |
+| AuditLog | ❌ Not Started | See CWOM-COMPLETION-ROADMAP.md |
 
-1. FastAPI Application
-	•	Provides REST endpoints.
-	•	For v0, must expose:
-	•	/health → returns {status: "ok"}
-	•	/tasks/enqueue → accepts a minimal TaskSpec and returns a task_id.
+---
 
-2. EnhancedOrchestrator
-	•	Central object that coordinates task flow.
-	•	Responsible for:
-	•	Initializing DB and internal structures.
-	•	Accepting/enqueueing new tasks.
-	•	Dispatching tasks to a worker loop.
-	•	Writing traces after execution.
-	•	For v0:
-	•	We stubbed _process_events.
-	•	We disabled agents that require LLM clients.
+## Core Components (Current)
 
-3. Task Model
-	•	Stored in Postgres.
-	•	Minimal required fields:
-	•	id
-	•	type
-	•	payload
-	•	status
-	•	timestamps
+### 1. FastAPI Application
+- Provides REST endpoints
+- Exposes:
+  - `/health` → returns `{status: "ok"}`
+  - `/tasks/enqueue` → accepts TaskSpec, returns task_id
+  - `/tasks/{id}` → retrieves task by ID
+  - `/cwom/*` → CWOM object CRUD endpoints
 
-4. Worker Loop
-	•	Runs inside orchestrator (or later as a separate service).
-	•	Picks the next queued task.
-	•	Executes a simple handler.
-	•	Writes a trace folder containing:
-	•	input.json
-	•	log.txt
-	•	output.json
-	•	Location: mounted volume /app/logs/<task_id>/…
+### 2. EnhancedOrchestrator
+- Central object that coordinates task flow
+- Responsible for:
+  - Initializing DB and internal structures
+  - Accepting/enqueueing new tasks
+  - Dispatching tasks to a worker loop
+  - Writing traces after execution
+- For v0: `_process_events()` stubbed, LLM agents disabled
 
-5. Postgres
-	•	Stores all task rows.
-	•	Must be reachable via DATABASE_URL env variable.
-	•	Local development should default to a sandboxed SQLite database (sqlite:///./devops_control_tower.db); point DATABASE_URL at Postgres only when explicitly targeting an external instance.
+### 3. Database Models
 
-6. Docker Compose
-	•	Runs:
-	•	control-tower (FastAPI runtime)
-	•	postgres
-	•	redis (optional, not required for v0)
-	•	Dockerfile must run:
-    python -m devops_control_tower.main
+**Core Models (`db/models.py`):**
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `TaskModel` | `tasks` | JCT V1 Task records |
+| `EventModel` | `events` | Event queue |
+| `WorkflowModel` | `workflows` | Workflow definitions |
+| `AgentModel` | `agents` | Agent registry |
+| `JobModel` | `jobs` | Sprint-0 execution tracking |
+| `ArtifactModel` | `artifacts` | Sprint-0 output references |
 
-Non-Goals for v0 (Codex should ignore for now)
-	•	Infrastructure monitoring agent
-	•	LLM-based workflows
-	•	Jules Dev Kit agent
-	•	Security scanning, deployment pipelines
-	•	Event routing
-	•	Workflow engine
-	•	Observability stack (Prometheus/Grafana)
+**CWOM Models (`db/cwom_models.py`):**
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `CWOMRepoModel` | `cwom_repos` | Work containers |
+| `CWOMIssueModel` | `cwom_issues` | Units of intent |
+| `CWOMContextPacketModel` | `cwom_context_packets` | Versioned briefings (immutable) |
+| `CWOMConstraintSnapshotModel` | `cwom_constraint_snapshots` | Operating constraints (immutable) |
+| `CWOMDoctrineRefModel` | `cwom_doctrine_refs` | Governance rules |
+| `CWOMRunModel` | `cwom_runs` | Execution attempts |
+| `CWOMArtifactModel` | `cwom_artifacts` | Run outputs |
 
-Codex must not work on these until the spine is validated.
+Plus 6 join tables for many-to-many relationships.
 
-⸻
+### 4. Worker Loop (Sprint-0)
+- Picks next queued task
+- Executes handler
+- Writes trace folder: `input.json`, `log.txt`, `output.json`
+- Location: `/app/logs/<task_id>/...`
+- Propagates `trace_id` for end-to-end causality
 
-What Codex Must Produce for v0
+### 5. Database
+- Default: SQLite (`sqlite:///./devops_control_tower.db`)
+- Production: PostgreSQL via `DATABASE_URL`
+- Migrations: Alembic in `devops_control_tower/db/migrations/`
 
-A. Reliable API routes
-	•	/health route
-	•	/tasks/enqueue route, returns task ID
+### 6. Docker Compose
+- `control-tower` - FastAPI runtime
+- `postgres` - Database
+- `redis` - Optional, not required for v0
+- Entry: `python -m devops_control_tower.main`
 
-B. Working orchestrator
-	•	orchestrator.start() must not crash
-	•	_process_events() must exist (stub is fine)
-	•	Task enqueue method must:
-	•	Insert DB row
-	•	Return ID
+## Non-Goals for v0
+- Infrastructure monitoring agent
+- LLM-based workflows
+- Jules Dev Kit agent
+- Security scanning, deployment pipelines
+- Event routing
+- Workflow engine
+- Observability stack (Prometheus/Grafana)
 
-C. Worker loop that:
-	•	Picks pending tasks
-	•	Executes a simple handler (e.g. echo payload)
-	•	Writes a trace directory
+Do not work on these until the spine is validated.
 
-D. Clean startup
-	•	No abstract class instantiation
-	•	No missing coroutine errors
-	•	No missing routers
-	•	App must stay running (no exit code 1/3 loops)
+---
 
-⸻
+## What Must Be Produced for v0
 
-Architectural Intent
+### A. Reliable API routes ✅
+- `/health` route
+- `/tasks/enqueue` route, returns task ID
+- `/tasks/{id}` route, retrieves task
 
-The JCT is meant to function as the brainstem of the entire automated development ecosystem.
-Once the spine works, Codex will grow JCT into:
-	•	A multi-agent orchestrator
-	•	A workflow engine
-	•	A DevOps automation hub
-	•	The primary ingestion point for all AI-driven technical work
+### B. Working orchestrator ✅
+- `orchestrator.start()` must not crash
+- `_process_events()` exists (stub)
+- Task enqueue inserts DB row and returns ID
 
-But v0 must be extremely small and correct, otherwise all later scaling becomes unstable.
+### C. Worker loop 🔄
+- Picks pending tasks
+- Executes handler
+- Writes trace directory with `trace_id` propagation
 
-⸻
+### D. Clean startup ✅
+- No abstract class instantiation
+- No missing coroutine errors
+- No missing routers
+- App stays running
 
-Codex Success Criteria
+---
 
-Codex should consider the v0 spine complete when:
-	1.	docker compose up → server starts with zero crashes
-	2.	GET /health → {status:"ok"}
-	3.	POST /tasks/enqueue → returns valid task ID
-	4.	Postgres contains the new task row
-	5.	Worker processes the task and produces a trace folder
-	6.	Logs show no unexpected exceptions
+## Architectural Intent
 
-Only after all of these are true should Codex move to v1 and beyond.
+JCT functions as the brainstem of the automated development ecosystem.
+Once the spine works, it grows into:
+- A multi-agent orchestrator
+- A workflow engine
+- A DevOps automation hub
+- The primary ingestion point for AI-driven technical work
+
+v0 must be extremely small and correct—all later scaling depends on it.
+
+---
+
+## Success Criteria
+
+v0 spine is complete when:
+1. `docker compose up` → server starts with zero crashes
+2. `GET /health` → `{status:"ok"}`
+3. `POST /tasks/enqueue` → returns valid task ID
+4. Database contains the new task row
+5. Worker processes task and produces trace folder
+6. Logs show no unexpected exceptions
+
+Only after all of these are true should work proceed to v1 and beyond.
 
 ---
 
 ## Canonical Work Object Model (CWOM) v0.1
 
-CWOM is the data model layer that will eventually bridge the task spine to a richer work representation. It provides 7 canonical object types with explicit causality.
+CWOM bridges the task spine to a richer work representation with 7 canonical object types and explicit causality.
 
-**Current Status:** Phase 2 Complete (Pydantic schemas + SQLAlchemy models)
+**Current Status:** Phase 4 Complete, Remediation Needed
 
 ### Causality Chain
 ```
@@ -146,24 +170,69 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 |--------|---------|
 | **Repo** | Work container (codebase, docs base, project boundary) |
 | **Issue** | Unit of intent (what we want) |
-| **ContextPacket** | Versioned briefing (what we know + assumptions + instructions) |
-| **ConstraintSnapshot** | Operating envelope (time, budget, health, tool limits) |
-| **DoctrineRef** | Governing rules ("how we decide / how we work") |
-| **Run** | Execution attempt (agent/human/CI doing work) |
-| **Artifact** | Output of a Run (PR, commit, report, build) with verification |
+| **ContextPacket** | Versioned briefing (immutable) |
+| **ConstraintSnapshot** | Operating envelope (immutable) |
+| **DoctrineRef** | Governing rules |
+| **Run** | Execution attempt |
+| **Artifact** | Output of a Run with verification |
 
 ### Implementation Status
-- **Phase 1 ✅:** Pydantic schemas in `devops_control_tower/cwom/`
-- **Phase 2 ✅:** SQLAlchemy models in `devops_control_tower/db/cwom_models.py`
-- **Phase 3 (Pending):** Services + API endpoints
-- **Phase 4 (Pending):** Integration with existing Task system
 
-### CWOM is NOT Required for v0 Spine
+| Phase | Status | Location |
+|-------|--------|----------|
+| 1. Pydantic Schemas | ✅ Complete | `devops_control_tower/cwom/` |
+| 2. SQLAlchemy Models | ✅ Complete | `devops_control_tower/db/cwom_models.py` |
+| 3. API Endpoints | ✅ Complete | `devops_control_tower/cwom/routes.py` |
+| 4. Task-CWOM Integration | ✅ Complete | `devops_control_tower/cwom/task_adapter.py` |
+| 5. AuditLog | ❌ Not Started | See roadmap |
 
-The v0 spine (`/tasks/enqueue → DB row → Worker → Trace folder`) does not depend on CWOM. CWOM is being built in parallel as the foundation for v1+ features like:
-- Multi-agent orchestration
-- Work lineage tracking
-- Governance and policy enforcement
-- Artifact verification
+### Known Issues (from CWOM-COMPLETION-ROADMAP.md)
 
-Codex should complete the v0 spine first before integrating CWOM.
+1. **trace_id mismatch**: Migration adds `trace_id` to CWOM tables, but models don't define it
+2. **Two migration directories**: Need consolidation
+3. **Missing AuditLog**: Required per deliverable checklist
+4. **Incomplete integration tests**: Structure tests exist, not full DB round-trips
+
+### Task-CWOM Integration
+
+```bash
+# Enqueue with CWOM object creation
+POST /tasks/enqueue?create_cwom=true
+```
+
+Creates: Repo, Issue, ContextPacket, ConstraintSnapshot
+Links: `task.cwom_issue_id` → Issue
+
+### CWOM API Endpoints
+
+| Endpoint | Methods | Notes |
+|----------|---------|-------|
+| `/cwom/repos` | POST, GET | CRUD |
+| `/cwom/issues` | POST, GET, PATCH | CRUD |
+| `/cwom/context-packets` | POST, GET | Immutable |
+| `/cwom/constraint-snapshots` | POST, GET | Immutable |
+| `/cwom/doctrine-refs` | POST, GET | CRUD |
+| `/cwom/runs` | POST, GET, PATCH | CRUD |
+| `/cwom/artifacts` | POST, GET | CRUD |
+
+---
+
+## Key Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `CLAUDE.md` | Detailed technical reference |
+| `docs/cwom/CWOM-IMPLEMENTATION-PLAN.md` | Original CWOM implementation phases |
+| `docs/cwom/CWOM-COMPLETION-ROADMAP.md` | Gap analysis and remediation plan |
+| `docs/cwom/CWOM-DELIVERABLE-CHECKLIST.md` | Definition of Done for CWOM |
+| `STAGE-01-SUMMARY.md` | Stage 1 completion evidence |
+
+---
+
+## Next Steps (Priority Order)
+
+1. **Fix trace_id model mismatch** - Add `trace_id` column to CWOM model classes
+2. **Implement AuditLog** - Model, migration, service, integration
+3. **Complete Worker Loop** - Sprint-0 task execution
+4. **Add integration tests** - Full DB round-trips with relationships
+5. **Fresh DB verification** - Script + CI integration
