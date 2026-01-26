@@ -15,7 +15,7 @@ Development proceeds in stages. Each stage has a summary document tracking progr
 **Stage Progress Documents:**
 - `STAGE-01-SUMMARY.md` - Task Contract + Intake Gate (✅ COMPLETE)
 
-**Stage 1 (Complete):** V1 Task Spec contract defined, policy gate implemented, `POST /tasks/enqueue` persists validated tasks, idempotency enforced, `GET /tasks/{id}` retrieves stored records. All 100 tests passing.
+**Stage 1 (Complete):** V1 Task Spec contract defined, policy gate implemented, `POST /tasks/enqueue` persists validated tasks, idempotency enforced, `GET /tasks/{id}` retrieves stored records.
 
 **Next Stage:** Worker implementation to process queued tasks and produce trace artifacts.
 
@@ -39,7 +39,7 @@ docker compose up
 # Testing
 pytest                                    # all tests
 pytest tests/test_orchestrator.py         # single file
-pytest tests/test_tasks_enqueue.py        # task enqueue tests
+pytest -k "test_enqueue"                  # by test name pattern
 pytest --cov=devops_control_tower         # with coverage
 
 # Linting/Formatting
@@ -63,25 +63,24 @@ devops_control_tower/
 │   ├── base.py              # BaseAgent (abstract) and AIAgent (LLM-enabled)
 │   └── implementations/     # Concrete agent implementations
 ├── schemas/
-<<<<<<< HEAD
-│   ├── __init__.py          # Schema exports
-│   └── task_v1.py           # V1 Task Pydantic models (TaskCreateV1, TaskResponseV1)
-├── policies/
-│   ├── __init__.py          # Policy exports
-│   └── task_policy.py       # Task intake policy validation (allow/deny rules)
-│   ├── task_v1.py 
-├── db/
-│   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
-│   ├── models.py            # ORM models (Event, Workflow, Agent, TaskModel)
-=======
 │   └── task_v1.py           # Pydantic models for V1 Task Spec
+├── cwom/                    # Canonical Work Object Model (v0.1)
+│   ├── __init__.py          # CWOM exports (all schemas, enums, primitives)
+│   ├── enums.py             # Status, IssueType, ArtifactType, etc.
+│   ├── primitives.py        # Actor, Ref, Source, Constraints, etc.
+│   ├── repo.py              # Repo schema
+│   ├── issue.py             # Issue schema
+│   ├── context_packet.py    # ContextPacket schema
+│   ├── constraint_snapshot.py # ConstraintSnapshot schema
+│   ├── doctrine_ref.py      # DoctrineRef schema
+│   ├── run.py               # Run schema
+│   └── artifact.py          # Artifact schema
 ├── policy/
 │   ├── __init__.py          # Exports PolicyError, evaluate
 │   └── task_gate.py         # Pure policy evaluation + normalization
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
 │   ├── models.py            # ORM models (Event, Workflow, Agent, Task)
->>>>>>> d5df021 (finish stage 1 - adding end points to add and retreive task. fix password auth to db)
 │   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
 └── data/models/
@@ -95,72 +94,11 @@ devops_control_tower/
 - **Database**: SQLite by default (`sqlite:///./devops_control_tower.db`). Set `DATABASE_URL` env var for Postgres. Alembic auto-converts async drivers to sync.
 - **Agents**: Inherit from `BaseAgent` (simple) or `AIAgent` (LLM-powered). Must implement `_initialize()`, `_cleanup()`, `handle_event()`.
 - **Task Intake (Stage 1)**: Tasks are submitted via `POST /tasks/enqueue`, validated against schema and policy, persisted with status `queued`. No execution yet.
-- **Task Spec V1**: Canonical schema defined in `docs/specs/task-spec-v1.md`. All tasks use structured `requested_by` (kind/id/label), required `objective`, normalized `operation` (code_change|docs|analysis|ops), and conservative `constraints` defaults.
 - **Policy Gate**: Pure policy module (`policy/task_gate.py`) validates and normalizes tasks before persistence. The `evaluate()` function returns a normalized `TaskCreateLegacyV1` or raises `PolicyError` with stable error codes.
-
-## API Endpoints
-
-### System
-- `GET /health`, `GET /healthz` - Health checks returning `{"status": "ok"}`
-- `GET /status` - System status including orchestrator and agent states
-- `GET /version` - Application version
-
-### Tasks (JCT V1 Task Spec)
-- `POST /tasks/enqueue` - Enqueue a task for execution (V0 spine: enqueue → DB row → Worker → Trace)
-- `GET /tasks` - List tasks with optional filtering (status, operation, requester_kind, target_repo)
-- `GET /tasks/{task_id}` - Get specific task details
-- `PATCH /tasks/{task_id}/status` - Update task status and execution details
-
-### Agents
-- `GET /agents` - List all registered agents
-- `GET /agents/{name}` - Get detailed agent information
-- `POST /agents/{name}/start` - Start a specific agent
-- `POST /agents/{name}/stop` - Stop a specific agent
-
-### Events
-- `GET /events` - List events with optional filtering
-- `GET /events/{event_id}` - Get specific event
-- `POST /events` - Create and queue events
-
-### Workflows
-- `GET /workflows` - List active workflows
-- `POST /tasks/enqueue` - **Stage 1** Task intake endpoint (validates, persists, returns task_id)
-
-### Task Enqueue Endpoint (V1)
-
-`POST /tasks/enqueue` accepts a V1 Task spec (see `docs/specs/task-spec-v1.md`):
-
-```json
-{
-  "type": "build",           // Required: build, deploy, test, scan, cleanup, notify
-  "payload": {...},          // Required: task-specific data
-  "priority": "medium",      // Optional: low, medium, high, critical
-  "source": "api",           // Optional: origin identifier
-  "target": {...},           // Optional: repository, ref, environment, path
-  "options": {...},          // Optional: timeout, retries, sandbox settings
-  "metadata": {...},         // Optional: arbitrary key-value data
-  "tags": ["ci"],            // Optional: categorization tags
-  "idempotency_key": "...",  // Optional: for deduplication
-  "callback_url": "..."      // Optional: webhook on completion
-}
-```
-
-Returns: `{"task_id": "uuid", "status": "queued", "created_at": "..."}`
-- `GET /workflows/{workflow_id}` - Get specific workflow details
-
-## Environment Configuration
-
-Key settings from `config.py` (all have defaults):
-- `DATABASE_URL` - Database connection (default: SQLite)
-- `REDIS_URL` - Redis for caching/pubsub
-- `DEBUG` - Enable debug mode
-- `API_PORT` - Server port (default: 8000)
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` - For AI agents
-- `JCT_ALLOWED_REPO_PREFIXES` - Comma-separated list of allowed repo prefixes (e.g., `myorg/,partnerorg/`). Empty = deny all.
 
 ## JCT V1 Task Specification
 
-The canonical task spec is fully documented in `docs/specs/task-spec-v1.md`. Key fields:
+The canonical task spec is documented in `docs/specs/task-spec-v1.md`. Key fields:
 
 ```json
 {
@@ -179,39 +117,23 @@ The canonical task spec is fully documented in `docs/specs/task-spec-v1.md`. Key
 }
 ```
 
-**Database Schema:**
+**Database Notes:**
 - `TaskModel` in `db/models.py` - Flattened structure with all V1 fields
-- `TaskService` in `db/services.py` - CRUD with idempotency support
+- SQLAlchemy reserves `metadata`, so DB column is `task_metadata` (mapped back to `metadata` in `to_dict()`)
 - Statuses: `pending` → `queued` → `running` → `completed`/`failed`/`cancelled`
-- Note: SQLAlchemy reserves `metadata`, so DB column is `task_metadata` (mapped back to `metadata` in `to_dict()`)
 
-**Validation:**
-- Pydantic models in `schemas/task_v1.py` enforce all constraints
-- `operation` uses `Literal` type for strict validation (only 4 allowed values)
-- Conservative defaults: 15min timeout, no network, no secrets
-
-**Policy Gate:**
-- Located in `policy/task_gate.py`
-- `evaluate(task: TaskCreateLegacyV1, config: PolicyConfig = None) -> TaskCreateLegacyV1`
-- Raises `PolicyError(code, message)` on violation
-- Policy rules:
-  - `operation` must be one of: `code_change`, `docs`, `analysis`, `ops`
-  - `target.repo` must match allowed prefixes (configured via `JCT_ALLOWED_REPO_PREFIXES` env var, comma-separated, e.g., `myorg/,partnerorg/`). Empty or unset = deny all.
-  - `constraints.time_budget_seconds` must be 30-86400
-  - `allow_network=true` is DENIED in V1
-  - `allow_secrets=true` is DENIED in V1
-- Normalization:
-  - Repository: lowercase, strip `.git` suffix
-  - Objective: trim whitespace
-  - Default `target.ref="main"`, `target.path=""`
+**Policy Gate Rules (`policy/task_gate.py`):**
+- `operation` must be one of: `code_change`, `docs`, `analysis`, `ops`
+- `target.repo` must match allowed prefixes (via `JCT_ALLOWED_REPO_PREFIXES` env var, comma-separated). Empty = deny all.
+- `constraints.time_budget_seconds` must be 30-86400
+- `allow_network=true` is DENIED in V1
+- `allow_secrets=true` is DENIED in V1
 - Error codes: `INVALID_OPERATION`, `REPO_NOT_ALLOWED`, `TIME_BUDGET_TOO_LOW`, `TIME_BUDGET_TOO_HIGH`, `NETWORK_ACCESS_DENIED`, `SECRETS_ACCESS_DENIED`
 
 **Compatibility Layer (temporary, will be removed in V2):**
 - `type` accepted as alias for `operation`
 - `payload` accepted as alias for `inputs`
 - `target.repository` accepted as alias for `target.repo`
-- Canonical fields take precedence when both are provided
-- Only canonical fields are persisted to DB
 
 ## Contract Governance (IMPORTANT)
 
@@ -221,6 +143,16 @@ The canonical task spec is fully documented in `docs/specs/task-spec-v1.md`. Key
 
 **Contract Snapshot Test:** The test `tests/test_contract_snapshot.py` asserts the canonical fields exist in the JSON schema. If CI turns red on this test, a breaking change was introduced.
 
+## Environment Configuration
+
+Key settings from `config.py` (all have defaults):
+- `DATABASE_URL` - Database connection (default: SQLite)
+- `REDIS_URL` - Redis for caching/pubsub
+- `DEBUG` - Enable debug mode
+- `API_PORT` - Server port (default: 8000)
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` - For AI agents
+- `JCT_ALLOWED_REPO_PREFIXES` - Comma-separated list of allowed repo prefixes (e.g., `myorg/,partnerorg/`). Empty = deny all.
+
 ## Testing
 
 pytest markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.e2e`
@@ -228,6 +160,77 @@ pytest markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.s
 Coverage target: 40% (configured in pyproject.toml)
 
 Key test files:
-- `tests/test_tasks_enqueue.py` - Task enqueue endpoint tests
-- `tests/test_task_policy.py` - Policy validation tests
+- `tests/test_api_tasks.py` - Task enqueue endpoint tests
+- `tests/test_policy.py` - Policy validation tests
+- `tests/test_contract_snapshot.py` - Schema contract tests
+- `tests/test_cwom_contract.py` - CWOM schema contract tests
 
+## Canonical Work Object Model (CWOM) v0.1
+
+CWOM is the "wiring standard" that makes features, agents, and automation composable. It defines 7 canonical object types with explicit causality.
+
+**Spec:** `docs/cwom/cwom-spec-v0.1.md`
+**Implementation Plan:** `docs/cwom/CWOM-IMPLEMENTATION-PLAN.md`
+**Schemas:** `devops_control_tower/cwom/`
+
+### Causality Chain
+```
+Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
+```
+
+### Object Types
+| Object | Purpose |
+|--------|---------|
+| **Repo** | Work container (codebase, docs base, project boundary) |
+| **Issue** | Unit of intent (what we want) |
+| **ContextPacket** | Versioned briefing (what we know + assumptions + instructions) |
+| **ConstraintSnapshot** | Operating envelope (time, budget, health, tool limits) |
+| **DoctrineRef** | Governing rules ("how we decide / how we work") |
+| **Run** | Execution attempt (agent/human/CI doing work) |
+| **Artifact** | Output of a Run (PR, commit, report, build) with verification |
+
+### Key Principles
+1. **Stable identity:** Every object has a globally unique ID (ULID)
+2. **Explicit linkage:** Cross-object relationships use `Ref` type
+3. **Immutability:** ContextPacket and ConstraintSnapshot are immutable once created
+4. **Auditability:** Run inputs and outputs are explicit
+
+### Usage Example
+```python
+from devops_control_tower.cwom import (
+    Repo, Issue, Run, Artifact, Actor, Source, Ref,
+    ObjectKind, IssueType, RunMode, ArtifactType, Executor
+)
+
+# Create Repo
+source = Source(system="github", external_id="myorg/myrepo")
+repo = Repo(name="My Repo", slug="myorg/myrepo", source=source)
+
+# Create Issue
+issue = Issue(
+    repo=Ref(kind=ObjectKind.REPO, id=repo.id),
+    title="Add /healthz endpoint",
+    type=IssueType.FEATURE
+)
+
+# Create Run
+actor = Actor(actor_kind="agent", actor_id="claude")
+run = Run(
+    for_issue=Ref(kind=ObjectKind.ISSUE, id=issue.id),
+    repo=Ref(kind=ObjectKind.REPO, id=repo.id),
+    mode=RunMode.AGENT,
+    executor=Executor(actor=actor, runtime="container")
+)
+
+# Create Artifact
+artifact = Artifact(
+    produced_by=Ref(kind=ObjectKind.RUN, id=run.id),
+    for_issue=Ref(kind=ObjectKind.ISSUE, id=issue.id),
+    type=ArtifactType.PR,
+    title="Add /healthz endpoint",
+    uri="https://github.com/myorg/myrepo/pull/42"
+)
+```
+
+### Contract Governance
+The Pydantic models in `cwom/` are the source of truth. `tests/test_cwom_contract.py` ensures schema stability.

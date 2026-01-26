@@ -70,7 +70,8 @@ venv.bak/
 # Configuration files with secrets
 .env.local
 .env.production
-config/secrets.yaml
+config/*
+!config/.gitkeep
 secrets/
 
 # Database
@@ -80,7 +81,8 @@ secrets/
 
 # Logs
 *.log
-logs/
+logs/*
+!logs/.gitkeep
 log/
 
 # Docker
