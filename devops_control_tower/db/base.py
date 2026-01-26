@@ -3,6 +3,7 @@
 import os
 from typing import Generator, Optional
 
+import sqlalchemy as sa
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine.url import URL, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -107,15 +108,25 @@ def get_db() -> Generator[Session, None, None]:
 
 
 async def init_database() -> None:
-    """Initialize the database with all tables."""
+    """Initialize the database session factory.
+
+    Note: Table creation is now managed by Alembic migrations.
+    Run `alembic upgrade head` to create/update database schema.
+
+    This function imports models to register them with SQLAlchemy's ORM
+    for relationship mapping, but does NOT create tables.
+    """
     # Import all models to ensure they're registered with Base
+    # This is needed for SQLAlchemy relationship resolution
     from . import models  # noqa: F401
     from . import cwom_models  # noqa: F401
 
-    # Create all tables
-    Base.metadata.create_all(bind=get_engine())
+    # Verify database connection works
+    engine = get_engine()
+    with engine.connect() as conn:
+        conn.execute(sa.text("SELECT 1"))
 
-    print("Database initialized successfully!")
+    print("Database connection verified. Run 'alembic upgrade head' to ensure schema is up to date.")
 
 
 async def drop_database() -> None:

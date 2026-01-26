@@ -229,6 +229,9 @@ class CWOMRepoModel(Base):
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="Repo")
 
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
+
     # Core fields
     name = Column(String(256), nullable=False, index=True)
     slug = Column(String(256), nullable=False, unique=True, index=True)
@@ -272,6 +275,7 @@ class CWOMRepoModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "name": self.name,
             "slug": self.slug,
             "source": self.source,
@@ -295,6 +299,9 @@ class CWOMIssueModel(Base):
     # Object identity (ULID string)
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="Issue")
+
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Repository reference (foreign key)
     repo_id = Column(String(128), ForeignKey("cwom_repos.id"), nullable=False, index=True)
@@ -365,6 +372,7 @@ class CWOMIssueModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "repo": {
                 "kind": self.repo_kind,
                 "id": self.repo_id,
@@ -410,6 +418,9 @@ class CWOMContextPacketModel(Base):
     # Object identity (ULID string)
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="ContextPacket")
+
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Issue reference (foreign key)
     for_issue_id = Column(
@@ -477,6 +488,7 @@ class CWOMContextPacketModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "for_issue": {
                 "kind": self.for_issue_kind,
                 "id": self.for_issue_id,
@@ -515,6 +527,9 @@ class CWOMConstraintSnapshotModel(Base):
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="ConstraintSnapshot")
 
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
+
     # Scope (index defined in __table_args__)
     scope = Column(cwom_constraint_scope_enum, nullable=False)
     captured_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
@@ -551,6 +566,7 @@ class CWOMConstraintSnapshotModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "scope": self.scope,
             "captured_at": self.captured_at.isoformat() if self.captured_at else None,
             "owner": {
@@ -572,6 +588,9 @@ class CWOMDoctrineRefModel(Base):
     # Object identity (ULID string)
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="DoctrineRef")
+
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Core fields
     namespace = Column(String(128), nullable=False, index=True)
@@ -633,6 +652,7 @@ class CWOMDoctrineRefModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "namespace": self.namespace,
             "name": self.name,
             "version": self.version,
@@ -657,6 +677,9 @@ class CWOMRunModel(Base):
     # Object identity (ULID string)
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="Run")
+
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Issue reference (foreign key)
     for_issue_id = Column(
@@ -746,6 +769,7 @@ class CWOMRunModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "for_issue": {
                 "kind": self.for_issue_kind,
                 "id": self.for_issue_id,
@@ -780,6 +804,9 @@ class CWOMArtifactModel(Base):
     # Object identity (ULID string)
     id = Column(String(128), primary_key=True)
     kind = Column(String(20), nullable=False, default="Artifact")
+
+    # Trace ID for unified traceability (Sprint-0)
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Run reference (foreign key)
     produced_by_id = Column(
@@ -837,6 +864,7 @@ class CWOMArtifactModel(Base):
         return {
             "kind": self.kind,
             "id": self.id,
+            "trace_id": self.trace_id,
             "produced_by": {
                 "kind": self.produced_by_kind,
                 "id": self.produced_by_id,

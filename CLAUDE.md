@@ -343,22 +343,36 @@ All CWOM objects are accessible via REST API under `/cwom` prefix:
 
 ### CWOM Completion Status
 
-**Assessment Date:** 2026-01-26
+**Assessment Date:** 2026-01-26 (Updated after Phase 1)
 
 | Requirement | Status |
 |------------|--------|
 | Models for all 7 objects | ✅ Complete |
 | Join tables (6 total) | ✅ Complete |
-| Migrations apply cleanly | 🟡 Needs fresh DB test |
+| Migrations apply cleanly | ✅ Complete (consolidated) |
+| trace_id in models | ✅ Complete |
 | CRUD tests cover linkage | 🟡 Partial (structure tests, not full round-trip) |
 | AuditLog | ❌ Not implemented |
 
-**Known Issues:**
-1. **trace_id column mismatch**: Migration `e5f6a7b8c9d0` adds `trace_id` to CWOM tables, but models don't define it yet
-2. **Two migration directories**: `/migrations/` and `/devops_control_tower/db/migrations/` - need consolidation
-3. **Core tables**: events, workflows, agents rely on `init_database()`, not alembic
+**Migration Chain (after Phase 1):**
+```
+a1b2c3d4e5f6 (core: events, workflows, agents)
+    ↓
+b2f6a732d137 (tasks table)
+    ↓
+c3e8f9a21b4d (CWOM tables)
+    ↓
+d4a9b8c2e5f6 (cwom_issue_id to tasks)
+    ↓
+e5f6a7b8c9d0 (trace_id, jobs, artifacts)
+```
 
-**Roadmap:** See `docs/cwom/CWOM-COMPLETION-ROADMAP.md` for detailed remediation plan.
+**Resolved Issues (Phase 1):**
+- ~~trace_id column mismatch~~ - All 7 CWOM models now have `trace_id` column
+- ~~Two migration directories~~ - Consolidated to single `devops_control_tower/db/migrations/`
+- ~~Core tables rely on init_database()~~ - New migration `a1b2c3d4e5f6` creates core tables
+
+**Remaining Work:** See `docs/cwom/CWOM-COMPLETION-ROADMAP.md` for Phases 2-4 (AuditLog, integration tests, CI verification).
 
 ### Sprint-0: Trace ID and Worker
 

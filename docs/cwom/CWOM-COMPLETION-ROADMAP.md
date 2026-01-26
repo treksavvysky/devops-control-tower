@@ -1,7 +1,7 @@
 # CWOM v0.1 Completion Roadmap
 
 **Date**: 2026-01-26
-**Status**: Assessment Complete, Roadmap Created
+**Status**: Phase 1 Complete, Phase 2-4 Pending
 
 ---
 
@@ -13,24 +13,31 @@ Based on the CWOM-DELIVERABLE-CHECKLIST.md requirements:
 |------------|--------|-------|
 | **Models for all 7 objects** | ✅ Present | Repo, Issue, ContextPacket, Run, Artifact, ConstraintSnapshot, DoctrineRef all in `cwom_models.py` |
 | **Join tables exist** | ✅ Present | 6 join tables: issue↔context, issue↔doctrine, issue↔constraint, run↔context, run↔doctrine, context↔doctrine |
-| **Migrations apply cleanly** | 🟡 Needs testing | Chain looks correct: `b2f6a732d137 → c3e8f9a21b4d → d4a9b8c2e5f6 → e5f6a7b8c9d0` |
-| **Downgrade sanity works** | 🟡 Needs testing | Downgrade functions exist but untested |
+| **Migrations apply cleanly** | ✅ Fixed | Chain: `a1b2c3d4e5f6 → b2f6a732d137 → c3e8f9a21b4d → d4a9b8c2e5f6 → e5f6a7b8c9d0` |
+| **Downgrade sanity works** | 🟡 Needs testing | Downgrade functions exist with dialect checks, untested at runtime |
 | **CRUD tests cover linkage** | 🟡 Partial | Tests verify structure but not actual DB round-trip with relationships |
 | **AuditLog exists** | ❌ Missing | Not implemented |
 
 ---
 
-## 2. Critical Issues Found
+## 2. Critical Issues Found (Phase 1 - RESOLVED)
 
-### 2.1 Migration Chain Problem
+### 2.1 Migration Chain Problem ✅ FIXED
 
-There are **two separate migration directories**:
-- `/migrations/versions/` - Contains `001_initial.py` (creates events, workflows, agents tables)
-- `/devops_control_tower/db/migrations/versions/` - Contains the task and CWOM migrations
+~~There are **two separate migration directories**~~
 
-The migration chain in `devops_control_tower/db/migrations/versions/`:
+**Resolution (2026-01-26):**
+- Created new migration `a1b2c3d4e5f6_create_core_tables.py` for events, workflows, agents
+- Updated `b2f6a732d137` to depend on `a1b2c3d4e5f6`
+- Deleted orphaned `/migrations/` directory
+- Updated `init_database()` to NOT call `create_all()` (now just verifies connection)
+- Made all migrations SQLite-compatible with dialect checks
+
+The migration chain is now:
 ```
-b2f6a732d137 (tasks table) - down_revision = None
+a1b2c3d4e5f6 (core: events, workflows, agents) - down_revision = None
+    ↓
+b2f6a732d137 (tasks table) - down_revision = a1b2c3d4e5f6
     ↓
 c3e8f9a21b4d (CWOM tables) - down_revision = b2f6a732d137
     ↓
@@ -39,27 +46,27 @@ d4a9b8c2e5f6 (cwom_issue_id to tasks) - down_revision = c3e8f9a21b4d
 e5f6a7b8c9d0 (trace_id, jobs, artifacts) - down_revision = d4a9b8c2e5f6
 ```
 
-**Problem**: The core models (Event, Workflow, Agent) have their tables created via `init_database()` using SQLAlchemy `create_all()`, but there's a separate `001_initial.py` migration in `/migrations/` that also creates them. This creates confusion about which migration path is authoritative.
+**On Fresh DB**: `alembic upgrade head` now creates ALL tables.
 
-**On Fresh DB**:
-- `alembic upgrade head` will create: tasks, all CWOM tables, jobs, artifacts
-- It will NOT create: events, workflows, agents (they rely on `init_database()`)
-
-### 2.2 Missing CRUD Integration Tests
+### 2.2 Missing CRUD Integration Tests (Phase 3)
 
 The existing tests verify:
 - Model structure (columns exist)
 - `to_dict()` output
 - API endpoints work
 
-**Missing**:
+**Still Missing** (to be addressed in Phase 3):
 - Database round-trip with actual relationships loaded
 - Query by join table (e.g., "find all runs governed by doctrine X")
 - Immutability enforcement at DB level (currently just convention/API level)
 
-### 2.3 trace_id Column Not in Models
+### 2.3 trace_id Column Not in Models ✅ FIXED
 
-Migration `e5f6a7b8c9d0` adds `trace_id` columns to all CWOM tables, but the SQLAlchemy models in `cwom_models.py` do not define these columns. This causes a mismatch between migration state and model definitions.
+~~Migration `e5f6a7b8c9d0` adds `trace_id` columns to all CWOM tables, but the SQLAlchemy models in `cwom_models.py` do not define these columns.~~
+
+**Resolution (2026-01-26):**
+- Added `trace_id = Column(String(36), nullable=True, index=True)` to all 7 CWOM model classes
+- Updated all `to_dict()` methods to include `trace_id`
 
 ---
 

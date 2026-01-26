@@ -158,7 +158,7 @@ Only after all of these are true should work proceed to v1 and beyond.
 
 CWOM bridges the task spine to a richer work representation with 7 canonical object types and explicit causality.
 
-**Current Status:** Phase 4 Complete, Remediation Needed
+**Current Status:** Phase 4 Complete, Phase 1 Remediation Complete
 
 ### Causality Chain
 ```
@@ -186,12 +186,16 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 | 4. Task-CWOM Integration | ✅ Complete | `devops_control_tower/cwom/task_adapter.py` |
 | 5. AuditLog | ❌ Not Started | See roadmap |
 
-### Known Issues (from CWOM-COMPLETION-ROADMAP.md)
+### Resolved Issues (Phase 1 Complete)
 
-1. **trace_id mismatch**: Migration adds `trace_id` to CWOM tables, but models don't define it
-2. **Two migration directories**: Need consolidation
-3. **Missing AuditLog**: Required per deliverable checklist
-4. **Incomplete integration tests**: Structure tests exist, not full DB round-trips
+1. ~~**trace_id mismatch**~~ ✅ All 7 CWOM models now have `trace_id` column
+2. ~~**Two migration directories**~~ ✅ Consolidated to single `devops_control_tower/db/migrations/`
+3. ~~**Core tables via init_database()**~~ ✅ New migration `a1b2c3d4e5f6` creates events, workflows, agents
+
+### Remaining Issues
+
+1. **Missing AuditLog**: Required per deliverable checklist (Phase 2)
+2. **Incomplete integration tests**: Structure tests exist, not full DB round-trips (Phase 3)
 
 ### Task-CWOM Integration
 
@@ -231,8 +235,8 @@ Links: `task.cwom_issue_id` → Issue
 
 ## Next Steps (Priority Order)
 
-1. **Fix trace_id model mismatch** - Add `trace_id` column to CWOM model classes
-2. **Implement AuditLog** - Model, migration, service, integration
+1. ~~**Fix trace_id model mismatch**~~ ✅ Complete
+2. **Implement AuditLog** - Model, migration, service, integration (Phase 2)
 3. **Complete Worker Loop** - Sprint-0 task execution
-4. **Add integration tests** - Full DB round-trips with relationships
-5. **Fresh DB verification** - Script + CI integration
+4. **Add integration tests** - Full DB round-trips with relationships (Phase 3)
+5. **Fresh DB verification** - Script created at `scripts/verify_db_fresh.sh`, needs CI integration (Phase 4)

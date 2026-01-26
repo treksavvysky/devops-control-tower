@@ -9,32 +9,37 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "b2f6a732d137"
-down_revision = None
+down_revision = "a1b2c3d4e5f6"  # Now depends on core tables migration
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    # Create enums
-    op.execute(
-        "CREATE TYPE requester_kind AS ENUM ('human', 'agent', 'system')"
-    )
-    op.execute(
-        "CREATE TYPE operation_type AS ENUM ('code_change', 'docs', 'analysis', 'ops')"
-    )
-    op.execute(
-        "CREATE TYPE task_status AS ENUM ('pending', 'queued', 'running', 'completed', 'failed', 'cancelled')"
-    )
+    # Get the current database dialect for conditional logic
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+
+    # Create PostgreSQL enum types (no-op for SQLite, which uses CHECK constraints)
+    if dialect == "postgresql":
+        op.execute(
+            "CREATE TYPE requester_kind AS ENUM ('human', 'agent', 'system')"
+        )
+        op.execute(
+            "CREATE TYPE operation_type AS ENUM ('code_change', 'docs', 'analysis', 'ops')"
+        )
+        op.execute(
+            "CREATE TYPE task_status AS ENUM ('pending', 'queued', 'running', 'completed', 'failed', 'cancelled')"
+        )
 
     # Create tasks table
+    # Use String(36) for UUID to be portable across PostgreSQL and SQLite
     op.create_table(
         "tasks",
-        # Primary fields
-        sa.Column("id", UUID(as_uuid=True), nullable=False, primary_key=True),
+        # Primary fields - String(36) is portable; the model uses GUID TypeDecorator
+        sa.Column("id", sa.String(length=36), nullable=False, primary_key=True),
         sa.Column("version", sa.String(length=10), nullable=False, server_default="1.0"),
         sa.Column("idempotency_key", sa.String(length=256), nullable=True),
         # Audit information (requested_by)
@@ -109,7 +114,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Get the current database dialect for conditional logic
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+
     op.drop_table("tasks")
-    op.execute("DROP TYPE IF EXISTS task_status")
-    op.execute("DROP TYPE IF EXISTS operation_type")
-    op.execute("DROP TYPE IF EXISTS requester_kind")
+
+    # Drop PostgreSQL enum types (no-op for SQLite)
+    if dialect == "postgresql":
+        op.execute("DROP TYPE IF EXISTS task_status")
+        op.execute("DROP TYPE IF EXISTS operation_type")
+        op.execute("DROP TYPE IF EXISTS requester_kind")
