@@ -11,8 +11,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..data.models.events import Event
-from ..schemas.task_v1 import TaskCreateV1, TaskStatus
-from ..schemas.task_v1 import TaskCreateLegacyV1
+from ..schemas.task_v1 import TaskCreateV1, TaskCreateLegacyV1
 from .models import AgentModel, EventModel, TaskModel, WorkflowModel
 
 

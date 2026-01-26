@@ -81,6 +81,7 @@ devops_control_tower/
 ├── db/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
 │   ├── models.py            # ORM models (Event, Workflow, Agent, Task)
+│   ├── cwom_models.py       # CWOM SQLAlchemy models (7 object types + 6 join tables)
 │   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
 └── data/models/
@@ -163,7 +164,8 @@ Key test files:
 - `tests/test_api_tasks.py` - Task enqueue endpoint tests
 - `tests/test_policy.py` - Policy validation tests
 - `tests/test_contract_snapshot.py` - Schema contract tests
-- `tests/test_cwom_contract.py` - CWOM schema contract tests
+- `tests/test_cwom_contract.py` - CWOM Pydantic schema contract tests
+- `tests/test_cwom_db_models.py` - CWOM SQLAlchemy model tests
 
 ## Canonical Work Object Model (CWOM) v0.1
 
@@ -232,5 +234,29 @@ artifact = Artifact(
 )
 ```
 
+### Database Models (Phase 2)
+
+CWOM objects are persisted via SQLAlchemy models in `db/cwom_models.py`:
+
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `CWOMRepoModel` | `cwom_repos` | Work containers |
+| `CWOMIssueModel` | `cwom_issues` | Units of intent |
+| `CWOMContextPacketModel` | `cwom_context_packets` | Versioned briefings |
+| `CWOMConstraintSnapshotModel` | `cwom_constraint_snapshots` | Operating constraints |
+| `CWOMDoctrineRefModel` | `cwom_doctrine_refs` | Governance rules |
+| `CWOMRunModel` | `cwom_runs` | Execution attempts |
+| `CWOMArtifactModel` | `cwom_artifacts` | Run outputs |
+
+**Join Tables** (for many-to-many relationships):
+- `cwom_issue_context_packets`
+- `cwom_issue_doctrine_refs`
+- `cwom_issue_constraint_snapshots`
+- `cwom_run_context_packets`
+- `cwom_run_doctrine_refs`
+- `cwom_context_packet_doctrine_refs`
+
+**Migration:** `c3e8f9a21b4d_create_cwom_tables.py`
+
 ### Contract Governance
-The Pydantic models in `cwom/` are the source of truth. `tests/test_cwom_contract.py` ensures schema stability.
+The Pydantic models in `cwom/` are the source of truth. `tests/test_cwom_contract.py` ensures schema stability. Database model tests are in `tests/test_cwom_db_models.py`.

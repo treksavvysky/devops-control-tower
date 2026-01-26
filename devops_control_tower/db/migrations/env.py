@@ -11,6 +11,7 @@ from sqlalchemy import engine_from_config, pool
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from devops_control_tower.db import models  # noqa: E402
+from devops_control_tower.db import cwom_models  # noqa: E402
 from devops_control_tower.db.base import (  # noqa: E402
     DEFAULT_DATABASE_URL,
     get_database_url,

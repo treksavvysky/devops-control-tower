@@ -127,3 +127,43 @@ Codex should consider the v0 spine complete when:
 	6.	Logs show no unexpected exceptions
 
 Only after all of these are true should Codex move to v1 and beyond.
+
+---
+
+## Canonical Work Object Model (CWOM) v0.1
+
+CWOM is the data model layer that will eventually bridge the task spine to a richer work representation. It provides 7 canonical object types with explicit causality.
+
+**Current Status:** Phase 2 Complete (Pydantic schemas + SQLAlchemy models)
+
+### Causality Chain
+```
+Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
+```
+
+### Object Types
+| Object | Purpose |
+|--------|---------|
+| **Repo** | Work container (codebase, docs base, project boundary) |
+| **Issue** | Unit of intent (what we want) |
+| **ContextPacket** | Versioned briefing (what we know + assumptions + instructions) |
+| **ConstraintSnapshot** | Operating envelope (time, budget, health, tool limits) |
+| **DoctrineRef** | Governing rules ("how we decide / how we work") |
+| **Run** | Execution attempt (agent/human/CI doing work) |
+| **Artifact** | Output of a Run (PR, commit, report, build) with verification |
+
+### Implementation Status
+- **Phase 1 ✅:** Pydantic schemas in `devops_control_tower/cwom/`
+- **Phase 2 ✅:** SQLAlchemy models in `devops_control_tower/db/cwom_models.py`
+- **Phase 3 (Pending):** Services + API endpoints
+- **Phase 4 (Pending):** Integration with existing Task system
+
+### CWOM is NOT Required for v0 Spine
+
+The v0 spine (`/tasks/enqueue → DB row → Worker → Trace folder`) does not depend on CWOM. CWOM is being built in parallel as the foundation for v1+ features like:
+- Multi-agent orchestration
+- Work lineage tracking
+- Governance and policy enforcement
+- Artifact verification
+
+Codex should complete the v0 spine first before integrating CWOM.

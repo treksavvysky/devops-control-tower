@@ -45,24 +45,6 @@ def get_database_url(raw_url: Optional[str] = None) -> str:
 
 _engine: Optional[Engine] = None
 
-# Create engine with proper configuration
-if DATABASE_URL.startswith("sqlite"):
-    # SQLite configuration for development/testing
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-else:
-    # PostgreSQL configuration for production
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        pool_recycle=3600,
-        connect_args={"connect_timeout": 10},
-    )
 
 def get_engine() -> Engine:
     """
@@ -128,6 +110,7 @@ async def init_database() -> None:
     """Initialize the database with all tables."""
     # Import all models to ensure they're registered with Base
     from . import models  # noqa: F401
+    from . import cwom_models  # noqa: F401
 
     # Create all tables
     Base.metadata.create_all(bind=get_engine())

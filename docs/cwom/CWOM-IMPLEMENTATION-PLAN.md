@@ -1,6 +1,6 @@
 # CWOM v0.1 Implementation Plan
 
-**Status:** Phase 1 Complete
+**Status:** Phase 2 Complete
 **Created:** 2025-01-25
 **Spec:** `docs/cwom/cwom-spec-v0.1.md`
 
@@ -63,27 +63,31 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 **Goal:** Create SQLAlchemy models and Alembic migrations for CWOM objects.
 
 ### Deliverables
-- [ ] Create `devops_control_tower/db/cwom_models.py` with:
-  - `RepoModel`
-  - `IssueModel`
-  - `ContextPacketModel`
-  - `ConstraintSnapshotModel`
-  - `DoctrineRefModel`
-  - `RunModel`
-  - `ArtifactModel`
-- [ ] Create join tables for many-to-many relationships:
-  - `issue_context_packets`
-  - `issue_doctrine_refs`
-  - `run_context_packets`
-  - `run_artifacts`
-- [ ] Generate Alembic migration
-- [ ] Add indexes for common query patterns
+- [x] Create `devops_control_tower/db/cwom_models.py` with:
+  - `CWOMRepoModel`
+  - `CWOMIssueModel`
+  - `CWOMContextPacketModel`
+  - `CWOMConstraintSnapshotModel`
+  - `CWOMDoctrineRefModel`
+  - `CWOMRunModel`
+  - `CWOMArtifactModel`
+- [x] Create join tables for many-to-many relationships:
+  - `cwom_issue_context_packets`
+  - `cwom_issue_doctrine_refs`
+  - `cwom_issue_constraint_snapshots`
+  - `cwom_run_context_packets`
+  - `cwom_run_doctrine_refs`
+  - `cwom_context_packet_doctrine_refs`
+- [x] Generate Alembic migration (`c3e8f9a21b4d_create_cwom_tables.py`)
+- [x] Add indexes for common query patterns
+- [x] Add database model tests (`tests/test_cwom_db_models.py`)
 
 ### Storage Notes (from spec)
-- Tables for each object kind
-- Join tables for many-to-many refs
-- `meta` stored as JSONB
-- Do not store primary relationships solely as JSON arrays
+- Tables for each object kind (prefixed with `cwom_`)
+- Join tables for many-to-many refs (prefixed with `cwom_`)
+- `meta` stored as JSON
+- Primary relationships stored via foreign keys, not JSON arrays
+- All models include `to_dict()` method for Pydantic schema compatibility
 
 ---
 
