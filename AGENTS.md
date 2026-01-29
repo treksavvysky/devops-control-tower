@@ -23,7 +23,7 @@ Once the spine is proven, the rest of the tower (agents, workflows, observabilit
 | CWOM API Endpoints | ✅ Complete | Full REST API under `/cwom` |
 | Task-CWOM Integration | ✅ Complete | Bidirectional mapping |
 | Worker Loop | 🔄 In Progress | Sprint-0 implementation |
-| AuditLog | ❌ Not Started | See CWOM-COMPLETION-ROADMAP.md |
+| AuditLog | ✅ Complete | Forensics & event sourcing for all CWOM operations |
 
 ---
 
@@ -70,6 +70,11 @@ Once the spine is proven, the rest of the tower (agents, workflows, observabilit
 | `CWOMArtifactModel` | `cwom_artifacts` | Run outputs |
 
 Plus 6 join tables for many-to-many relationships.
+
+**Audit Models (`db/audit_models.py`):**
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `AuditLogModel` | `audit_log` | Forensics and event sourcing |
 
 ### 4. Worker Loop (Sprint-0)
 - Picks next queued task
@@ -184,7 +189,7 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 | 2. SQLAlchemy Models | ✅ Complete | `devops_control_tower/db/cwom_models.py` |
 | 3. API Endpoints | ✅ Complete | `devops_control_tower/cwom/routes.py` |
 | 4. Task-CWOM Integration | ✅ Complete | `devops_control_tower/cwom/task_adapter.py` |
-| 5. AuditLog | ❌ Not Started | See roadmap |
+| 5. AuditLog | ✅ Complete | `devops_control_tower/db/audit_service.py` |
 
 ### Resolved Issues (Phase 1 Complete)
 
@@ -194,8 +199,7 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 
 ### Remaining Issues
 
-1. **Missing AuditLog**: Required per deliverable checklist (Phase 2)
-2. **Incomplete integration tests**: Structure tests exist, not full DB round-trips (Phase 3)
+1. **Incomplete integration tests**: Structure tests exist, not full DB round-trips (Phase 3)
 
 ### Task-CWOM Integration
 
@@ -233,10 +237,35 @@ Links: `task.cwom_issue_id` → Issue
 
 ---
 
+## AuditLog
+
+Every CWOM state change is recorded in `audit_log` for forensics and event sourcing.
+
+**Logged Actions:**
+- `created` - Object creation
+- `updated` - Object modification
+- `status_changed` - Status transitions
+- `deleted` - Object deletion
+- `linked` - Relationship creation
+- `unlinked` - Relationship removal
+
+**Schema:**
+```
+audit_log:
+  id, ts, actor_kind, actor_id, action,
+  entity_kind, entity_id, before, after,
+  note, trace_id
+```
+
+**Usage in CWOM services:**
+All CWOM service methods accept `actor_kind`, `actor_id`, and `trace_id` parameters for audit tracking.
+
+---
+
 ## Next Steps (Priority Order)
 
 1. ~~**Fix trace_id model mismatch**~~ ✅ Complete
-2. **Implement AuditLog** - Model, migration, service, integration (Phase 2)
+2. ~~**Implement AuditLog**~~ ✅ Complete (Phase 2)
 3. **Complete Worker Loop** - Sprint-0 task execution
 4. **Add integration tests** - Full DB round-trips with relationships (Phase 3)
 5. **Fresh DB verification** - Script created at `scripts/verify_db_fresh.sh`, needs CI integration (Phase 4)

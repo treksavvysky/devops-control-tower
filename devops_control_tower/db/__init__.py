@@ -16,6 +16,10 @@ from .cwom_models import (
     CWOMRunModel,
 )
 
+# Audit log
+from .audit_models import AuditLogModel
+from .audit_service import AuditService
+
 __all__ = [
     "Base",
     "engine",
@@ -32,4 +36,7 @@ __all__ = [
     "CWOMDoctrineRefModel",
     "CWOMRunModel",
     "CWOMArtifactModel",
+    # Audit log
+    "AuditLogModel",
+    "AuditService",
 ]

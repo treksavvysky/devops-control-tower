@@ -1,7 +1,8 @@
 # CWOM v0.1 Implementation Plan
 
-**Status:** Phase 2 Complete
+**Status:** Phase 4 Complete
 **Created:** 2025-01-25
+**Updated:** 2025-01-26
 **Spec:** `docs/cwom/cwom-spec-v0.1.md`
 
 ---
@@ -96,7 +97,7 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 **Goal:** Create service layer and REST endpoints for CWOM CRUD operations.
 
 ### Deliverables
-- [ ] Create `devops_control_tower/cwom/services.py`:
+- [x] Create `devops_control_tower/cwom/services.py`:
   - `RepoService`
   - `IssueService`
   - `ContextPacketService`
@@ -104,20 +105,34 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
   - `DoctrineRefService`
   - `RunService`
   - `ArtifactService`
-- [ ] Create API router `devops_control_tower/cwom/routes.py`:
+- [x] Create API router `devops_control_tower/cwom/routes.py`:
   - `POST /cwom/repos` - Create repo
   - `GET /cwom/repos/{id}` - Get repo
+  - `GET /cwom/repos` - List repos
   - `POST /cwom/issues` - Create issue
   - `GET /cwom/issues/{id}` - Get issue with related objects
+  - `GET /cwom/issues` - List issues
+  - `PATCH /cwom/issues/{id}/status` - Update issue status
   - `POST /cwom/context-packets` - Create context packet
+  - `GET /cwom/context-packets/{id}` - Get context packet
+  - `GET /cwom/issues/{id}/context-packets` - List context packets for issue
   - `POST /cwom/constraint-snapshots` - Create constraint snapshot
+  - `GET /cwom/constraint-snapshots/{id}` - Get constraint snapshot
+  - `GET /cwom/constraint-snapshots` - List constraint snapshots
   - `POST /cwom/doctrine-refs` - Create doctrine ref
+  - `GET /cwom/doctrine-refs/{id}` - Get doctrine ref
+  - `GET /cwom/doctrine-refs` - List doctrine refs
   - `POST /cwom/runs` - Create run
+  - `GET /cwom/runs/{id}` - Get run
+  - `GET /cwom/runs` - List runs
   - `PATCH /cwom/runs/{id}` - Update run status/outputs
   - `POST /cwom/artifacts` - Create artifact
+  - `GET /cwom/artifacts/{id}` - Get artifact
   - `GET /cwom/runs/{id}/artifacts` - List artifacts for run
-- [ ] Add validation for immutability constraints
-- [ ] Add tests for all endpoints
+  - `GET /cwom/issues/{id}/artifacts` - List artifacts for issue
+- [x] Add validation for immutability constraints (405 Method Not Allowed for PUT/PATCH on ContextPacket and ConstraintSnapshot)
+- [x] Add tests for all endpoints (`tests/test_cwom_api.py` - 21 tests)
+- [x] Integrated CWOM router into main FastAPI app (`api.py`)
 
 ---
 
@@ -138,13 +153,14 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 | Task result/output | `Artifact` |
 
 ### Deliverables
-- [ ] Create adapter layer `devops_control_tower/cwom/task_adapter.py`:
-  - `task_to_issue()` - Convert TaskCreateV1 to Issue + ContextPacket
+- [x] Create adapter layer `devops_control_tower/cwom/task_adapter.py`:
+  - `task_to_cwom()` - Convert TaskCreateV1 to Repo + Issue + ContextPacket + ConstraintSnapshot
   - `issue_to_task()` - Convert Issue back to Task format (for API compatibility)
-- [ ] Modify `/tasks/enqueue` to optionally create CWOM objects
-- [ ] Add `cwom_issue_id` foreign key to TaskModel
-- [ ] Create migration for TaskModel update
-- [ ] Ensure backward compatibility (existing Task API unchanged)
+- [x] Modify `/tasks/enqueue` to optionally create CWOM objects via `?create_cwom=true` query parameter
+- [x] Add `cwom_issue_id` column to TaskModel
+- [x] Create migration for TaskModel update (`d4a9b8c2e5f6_add_cwom_issue_id_to_tasks.py`)
+- [x] Ensure backward compatibility (existing Task API unchanged - CWOM creation is opt-in)
+- [x] Add integration tests (`tests/test_task_cwom_integration.py`)
 
 ---
 
@@ -185,10 +201,30 @@ python-ulid = "^2.0"  # For ULID generation
 
 ---
 
-## Success Criteria (Phase 1)
+## Success Criteria
 
-- [ ] All 7 CWOM Pydantic schemas pass validation tests
-- [ ] Schemas export valid JSON Schema
-- [ ] Contract snapshot test exists and passes
-- [ ] `docs/cwom/cwom-spec-v0.1.md` is the canonical spec location
-- [ ] CLAUDE.md updated with CWOM section
+### Phase 1 ✅
+- [x] All 7 CWOM Pydantic schemas pass validation tests
+- [x] Schemas export valid JSON Schema
+- [x] Contract snapshot test exists and passes
+- [x] `docs/cwom/cwom-spec-v0.1.md` is the canonical spec location
+- [x] CLAUDE.md updated with CWOM section
+
+### Phase 2 ✅
+- [x] SQLAlchemy models created for all 7 object types
+- [x] Join tables created for many-to-many relationships
+- [x] Alembic migration successfully creates all tables
+- [x] Database model tests pass
+
+### Phase 3 ✅
+- [x] Service layer provides CRUD for all object types
+- [x] API endpoints accessible under `/cwom` prefix
+- [x] Immutability enforced for ContextPacket and ConstraintSnapshot
+- [x] API tests pass
+
+### Phase 4 ✅
+- [x] Task adapter provides bidirectional conversion
+- [x] `/tasks/enqueue?create_cwom=true` creates CWOM objects
+- [x] Task records linked to CWOM Issues via `cwom_issue_id`
+- [x] Backward compatibility maintained (opt-in CWOM creation)
+- [x] Integration tests pass

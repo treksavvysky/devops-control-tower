@@ -5,25 +5,29 @@ Enhanced FastAPI application with full API endpoints.
 from __future__ import annotations
 
 import importlib.metadata
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .core.enhanced_orchestrator import EnhancedOrchestrator
 from .data.models.events import Event, EventPriority, EventTypes
 from .db.base import get_db, init_database
-from .db.services import EventService, TaskService, WorkflowService
+from .db.services import ArtifactService, EventService, JobService, TaskService, WorkflowService
 from .schemas.task_v1 import (
     TaskCreateV1,
     TaskCreateLegacyV1,
 )
 from .policy import PolicyError, evaluate as evaluate_policy
+from .cwom.routes import router as cwom_router
+from .cwom.task_adapter import task_to_cwom
 
 # Initialize structured logging
 logger = structlog.get_logger()
@@ -85,6 +89,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include CWOM routes
+app.include_router(cwom_router)
+
 
 @app.get("/health", tags=["system"])
 async def health() -> dict:
@@ -99,9 +106,25 @@ async def health() -> dict:
 
 # Health and Info Endpoints
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
+def healthz(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Health check endpoint with DB connectivity check (Sprint-0).
+
+    Returns:
+        - ok: true if all checks pass
+        - db: true if database is reachable
+    """
+    db_ok = False
+    try:
+        # Simple query to check DB connectivity
+        db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        logger.warning("healthz_db_check_failed", error=str(e))
+
+    return {
+        "ok": db_ok,
+        "db": db_ok,
+    }
 
 
 @app.get("/version")
@@ -285,7 +308,10 @@ async def create_event(
 # Task Management Endpoints (JCT V1 Task Spec)
 @app.post("/tasks/enqueue", status_code=201)
 async def enqueue_task(
-    task_spec: TaskCreateV1 | TaskCreateLegacyV1, db: Session = Depends(get_db)
+    task_spec: TaskCreateV1 | TaskCreateLegacyV1,
+    create_cwom: bool = False,
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-Id"),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     Enqueue a task for execution.
@@ -293,14 +319,30 @@ async def enqueue_task(
     This endpoint implements the JCT V1 Task Spec. It creates a database row
     for the task and queues it for processing by a worker.
 
+    Sprint-0 Trace ID:
+    - If caller supplies X-Trace-Id header, that value is used
+    - Otherwise, a new UUIDv4 trace_id is generated
+    - trace_id is included in response JSON and stored in DB
+
     Flow:
-    1. Schema validation (handled by Pydantic/FastAPI)
-    2. Policy evaluation (governance + normalization)
-    3. Persist normalized task with status="queued"
-    4. Return task_id and status
+    1. Generate or accept trace_id
+    2. Schema validation (handled by Pydantic/FastAPI)
+    3. Policy evaluation (governance + normalization)
+    4. Persist normalized task with status="queued" and trace_id
+    5. Optionally create CWOM objects (if create_cwom=True)
+    6. Return task_id, trace_id, and status
+
+    Args:
+        task_spec: The task specification
+        create_cwom: If True, also create corresponding CWOM objects (Issue, ContextPacket, etc.)
+        x_trace_id: Optional trace ID from caller (X-Trace-Id header)
 
     For v0 spine: /tasks/enqueue → DB row → Worker → Trace folder
     """
+    # Step 0: Generate or accept trace_id (Sprint-0)
+    trace_id = x_trace_id or str(uuid.uuid4())
+    logger.info("task_enqueue_start", trace_id=trace_id)
+
     # Step 1: Policy evaluation - validates and normalizes the task
     try:
         # Normalize: legacy → canonical (canonical should be preferred by union order)
@@ -312,32 +354,76 @@ async def enqueue_task(
             canonical_task = task_spec
         normalized_task = evaluate_policy(canonical_task)
     except PolicyError as e:
-        logger.warning(f"Policy violation: {e.code} - {e.message}")
+        logger.warning("policy_violation", trace_id=trace_id, code=e.code, message=e.message)
         raise HTTPException(
             status_code=422,
             detail=e.to_dict(),
         )
 
-    # Step 2: Persist the normalized task
+    # Step 2: Persist the normalized task with trace_id
     try:
         task_service = TaskService(db)
-        db_task = task_service.create_task(normalized_task)
+        db_task = task_service.create_task(normalized_task, trace_id=trace_id)
+
+        logger.info("task_created", trace_id=trace_id, task_id=str(db_task.id))
 
         # For v0 spine, we create the DB row and immediately mark it as queued
         # Later: actual worker orchestration will be implemented
         task_service.update_task_status(str(db_task.id), "queued")
 
-        return {
+        logger.info("task_queued", trace_id=trace_id, task_id=str(db_task.id))
+
+        # Step 3: Optionally create CWOM objects
+        cwom_objects = None
+        if create_cwom:
+            try:
+                cwom_result = task_to_cwom(canonical_task, db)
+                # Link the Task to the CWOM Issue
+                db_task.cwom_issue_id = cwom_result.issue.id
+                db.commit()
+                db.refresh(db_task)
+
+                cwom_objects = {
+                    "repo_id": cwom_result.repo.id,
+                    "issue_id": cwom_result.issue.id,
+                    "context_packet_id": cwom_result.context_packet.id,
+                    "constraint_snapshot_id": cwom_result.constraint_snapshot.id,
+                }
+                logger.info(
+                    "cwom_objects_created",
+                    trace_id=trace_id,
+                    task_id=str(db_task.id),
+                    cwom=cwom_objects,
+                )
+            except Exception as e:
+                logger.warning(
+                    "cwom_creation_failed",
+                    trace_id=trace_id,
+                    task_id=str(db_task.id),
+                    error=str(e),
+                )
+                # Don't fail the task creation, just log the warning
+                cwom_objects = {"error": str(e)}
+
+        response = {
             "status": "success",
             "task_id": str(db_task.id),
+            "trace_id": trace_id,
             "message": "Task enqueued successfully",
             "task": db_task.to_dict(),
         }
 
+        if cwom_objects:
+            response["cwom"] = cwom_objects
+
+        logger.info("task_enqueue_complete", trace_id=trace_id, task_id=str(db_task.id))
+        return response
+
     except ValueError as e:
+        logger.error("task_enqueue_error", trace_id=trace_id, error=str(e))
         raise HTTPException(status_code=400, detail=f"Invalid task data: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to enqueue task: {e}")
+        logger.error("task_enqueue_error", trace_id=trace_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to enqueue task: {str(e)}")
 
 

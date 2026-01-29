@@ -62,91 +62,120 @@ class GUID(TypeDecorator):
 
 
 class TaskModel(Base):
-    """SQLAlchemy model for V1 tasks."""
+    """SQLAlchemy model for JCT V1 Task Spec.
 
-    __tablename__ = "tasks_v1"
+    This model matches the schema defined in migration b2f6a732d137.
+    """
+
+    __tablename__ = "tasks"
 
     # Primary key - server-generated UUID (portable across DBs)
     id = Column(GUID(), primary_key=True, default=uuid_module.uuid4)
+    version = Column(String(10), nullable=False, default="1.0")
+    idempotency_key = Column(String(256), nullable=True, unique=True, index=True)
 
-    # Core task fields
-    type = Column(String(64), nullable=False, index=True)
+    # Audit information (requested_by)
+    requested_by_kind = Column(
+        Enum("human", "agent", "system", name="requester_kind"),
+        nullable=False,
+        index=True,
+    )
+    requested_by_id = Column(String(128), nullable=False, index=True)
+    requested_by_label = Column(String(256), nullable=True)
+
+    # Task definition
+    objective = Column(Text, nullable=False)
+    operation = Column(
+        Enum("code_change", "docs", "analysis", "ops", name="operation_type"),
+        nullable=False,
+        index=True,
+    )
+
+    # Target information
+    target_repo = Column(String(256), nullable=False, index=True)
+    target_ref = Column(String(256), nullable=False, default="main")
+    target_path = Column(String(512), nullable=False, default="")
+
+    # Constraints
+    time_budget_seconds = Column(Integer, nullable=False, default=900)
+    allow_network = Column(Boolean, nullable=False, default=False)
+    allow_secrets = Column(Boolean, nullable=False, default=False)
+
+    # Task data
+    inputs = Column(JSON, nullable=False, default=dict)
+    task_metadata = Column("metadata", JSON, nullable=False, default=dict)
+
+    # Status tracking
     status = Column(
         Enum(
-            "queued", "running", "completed", "failed", "cancelled",
+            "pending", "queued", "running", "completed", "failed", "cancelled",
             name="task_status"
         ),
         nullable=False,
-        default="queued",
+        default="pending",
         index=True,
     )
-    priority = Column(
-        Enum("low", "medium", "high", "critical", name="task_priority"),
-        nullable=False,
-        default="medium",
-        index=True,
-    )
-    source = Column(String(64), nullable=False, default="api", index=True)
-
-    # Payload and options (JSON)
-    payload = Column(JSON, nullable=False)
-    target = Column(JSON, nullable=True)  # TaskTargetV1 as JSON
-    options = Column(JSON, nullable=False, default=dict)  # TaskOptionsV1 as JSON
-    metadata_ = Column("metadata", JSON, nullable=False, default=dict)
-    tags = Column(JSON, nullable=False, default=list)
-
-    # Deduplication and callbacks
-    idempotency_key = Column(String(128), nullable=True, unique=True, index=True)
-    callback_url = Column(String(2000), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=func.now(),
-        onupdate=func.now(),
-    )
+    queued_at = Column(DateTime(timezone=True), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Execution tracking
-    worker_id = Column(String(128), nullable=True)
-    attempt = Column(Integer, nullable=False, default=0)
+    # Execution details
+    assigned_to = Column(String(100), nullable=True)
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
+    trace_path = Column(String(512), nullable=True)
+
+    # CWOM Integration (Phase 4)
+    cwom_issue_id = Column(String(128), nullable=True, index=True)
+
+    # Sprint-0: Trace ID for end-to-end causality tracking
+    trace_id = Column(String(36), nullable=True, index=True)
 
     # Indexes for common queries
     __table_args__ = (
-        Index("ix_tasks_v1_type_status", "type", "status"),
-        Index("ix_tasks_v1_priority_status", "priority", "status"),
-        Index("ix_tasks_v1_created_at", "created_at"),
-        Index("ix_tasks_v1_source_status", "source", "status"),
+        Index("ix_tasks_status_operation", "status", "operation"),
+        Index("ix_tasks_requester", "requested_by_kind", "requested_by_id"),
     )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert model to dictionary."""
+        """Convert model to dictionary matching JCT V1 Task Spec."""
         return {
             "task_id": str(self.id),
-            "type": self.type,
-            "status": self.status,
-            "priority": self.priority,
-            "source": self.source,
-            "payload": self.payload,
-            "target": self.target,
-            "options": self.options,
-            "metadata": self.metadata_,
-            "tags": self.tags,
+            "version": self.version,
             "idempotency_key": self.idempotency_key,
-            "callback_url": self.callback_url,
+            "requested_by": {
+                "kind": self.requested_by_kind,
+                "id": self.requested_by_id,
+                "label": self.requested_by_label,
+            },
+            "objective": self.objective,
+            "operation": self.operation,
+            "target": {
+                "repo": self.target_repo,
+                "ref": self.target_ref,
+                "path": self.target_path,
+            },
+            "constraints": {
+                "time_budget_seconds": self.time_budget_seconds,
+                "allow_network": self.allow_network,
+                "allow_secrets": self.allow_secrets,
+            },
+            "inputs": self.inputs,
+            "metadata": self.task_metadata,
+            "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "queued_at": self.queued_at.isoformat() if self.queued_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "worker_id": self.worker_id,
-            "attempt": self.attempt,
+            "assigned_to": self.assigned_to,
             "result": self.result,
             "error": self.error,
+            "trace_path": self.trace_path,
+            "cwom_issue_id": self.cwom_issue_id,
+            "trace_id": self.trace_id,
         }
 
 
@@ -374,3 +403,132 @@ class AgentModel(Base):
 
 # Note: The canonical TaskModel for JCT V1 Task Spec is defined above as TaskModel
 # with __tablename__ = "tasks_v1". The duplicate definition that was here has been removed.
+
+
+class JobModel(Base):
+    """SQLAlchemy model for Sprint-0 jobs.
+
+    A job represents a single execution attempt of a task.
+    Jobs track worker assignment and execution state with trace_id propagation.
+    """
+
+    __tablename__ = "jobs"
+
+    # Primary key - UUID string for portability
+    id = Column(String(36), primary_key=True)
+    task_id = Column(String(36), nullable=False, index=True)
+    trace_id = Column(String(36), nullable=False, index=True)
+
+    # Status tracking
+    status = Column(
+        Enum(
+            "pending", "claimed", "running", "completed", "failed",
+            name="job_status"
+        ),
+        nullable=False,
+        default="pending",
+        index=True,
+    )
+
+    # Worker assignment
+    worker_id = Column(String(100), nullable=True, index=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Results
+    result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_jobs_status_created", "status", "created_at"),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary."""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "trace_id": self.trace_id,
+            "status": self.status,
+            "worker_id": self.worker_id,
+            "claimed_at": self.claimed_at.isoformat() if self.claimed_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "result": self.result,
+            "error": self.error,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ArtifactModel(Base):
+    """SQLAlchemy model for Sprint-0 artifacts.
+
+    Artifacts are outputs produced during task/job execution.
+    Each artifact carries trace_id for end-to-end causality tracking.
+
+    Note: This is separate from CWOM artifacts (cwom_artifacts table).
+    Sprint-0 artifacts are simpler and focused on trace-based debugging.
+    """
+
+    __tablename__ = "artifacts"
+
+    # Primary key
+    id = Column(String(36), primary_key=True)
+    task_id = Column(String(36), nullable=False, index=True)
+    job_id = Column(String(36), nullable=True, index=True)
+    trace_id = Column(String(36), nullable=False, index=True)
+
+    # Artifact type
+    kind = Column(
+        Enum(
+            "log", "diff", "report", "file", "metric", "error",
+            name="artifact_kind"
+        ),
+        nullable=False,
+        default="log",
+        index=True,
+    )
+
+    # Reference to actual content
+    uri = Column(String(1024), nullable=True)  # External reference (S3, file path, etc.)
+    ref = Column(String(512), nullable=True)   # Internal reference
+    content = Column(Text, nullable=True)       # Inline content for small artifacts
+
+    # Content metadata
+    content_type = Column(String(100), nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    checksum = Column(String(128), nullable=True)
+    meta = Column(JSON, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_artifacts_created_at", "created_at"),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary."""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "job_id": self.job_id,
+            "trace_id": self.trace_id,
+            "kind": self.kind,
+            "uri": self.uri,
+            "ref": self.ref,
+            "content": self.content,
+            "content_type": self.content_type,
+            "size_bytes": self.size_bytes,
+            "checksum": self.checksum,
+            "meta": self.meta,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..data.models.events import Event
 from ..schemas.task_v1 import TaskCreateV1, TaskCreateLegacyV1
-from .models import AgentModel, EventModel, TaskModel, WorkflowModel
+from .models import AgentModel, ArtifactModel, EventModel, JobModel, TaskModel, WorkflowModel
 
 
 class EventService:
@@ -276,8 +276,15 @@ class TaskService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_task(self, task_spec: TaskCreateLegacyV1) -> TaskModel:
-        """Create a new task from V1 spec."""
+    def create_task(
+        self, task_spec: TaskCreateLegacyV1, trace_id: Optional[str] = None
+    ) -> TaskModel:
+        """Create a new task from V1 spec.
+
+        Args:
+            task_spec: The V1 task specification
+            trace_id: Optional trace_id for end-to-end causality tracking (Sprint-0)
+        """
         # Check for existing task with same idempotency key
         if task_spec.idempotency_key:
             existing = self.get_task_by_idempotency_key(task_spec.idempotency_key)
@@ -307,6 +314,8 @@ class TaskService:
             task_metadata=task_spec.metadata,
             # status
             status="pending",
+            # Sprint-0: trace_id for causality tracking
+            trace_id=trace_id,
         )
 
         self.db.add(db_task)
@@ -348,12 +357,6 @@ class TaskService:
 
         if status:
             query = query.filter(TaskModel.status == status)
-        if task_type:
-            query = query.filter(TaskModel.type == task_type)
-        if priority:
-            query = query.filter(TaskModel.priority == priority)
-        if source:
-            query = query.filter(TaskModel.source == source)
         if operation:
             query = query.filter(TaskModel.operation == operation)
         if requester_kind:
@@ -424,5 +427,289 @@ class TaskService:
             .filter(TaskModel.status == "queued")
             .order_by(TaskModel.created_at)
             .limit(limit)
+            .all()
+        )
+
+    def get_task_by_trace_id(self, trace_id: str) -> Optional[TaskModel]:
+        """Get a task by trace_id (Sprint-0)."""
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.trace_id == trace_id)
+            .first()
+        )
+
+    def get_tasks_by_trace_id(self, trace_id: str) -> List[TaskModel]:
+        """Get all tasks with a given trace_id (Sprint-0)."""
+        return (
+            self.db.query(TaskModel)
+            .filter(TaskModel.trace_id == trace_id)
+            .order_by(TaskModel.created_at)
+            .all()
+        )
+
+
+class JobService:
+    """Service for managing jobs in the database (Sprint-0).
+
+    A job represents a single execution attempt of a task.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create_job(
+        self,
+        task_id: str,
+        trace_id: str,
+        job_id: Optional[str] = None,
+    ) -> JobModel:
+        """Create a new job for a task.
+
+        Args:
+            task_id: The task ID this job is for
+            trace_id: The trace_id for causality tracking
+            job_id: Optional custom job ID (defaults to UUID)
+        """
+        db_job = JobModel(
+            id=job_id or str(uuid.uuid4()),
+            task_id=task_id,
+            trace_id=trace_id,
+            status="pending",
+        )
+
+        self.db.add(db_job)
+        self.db.commit()
+        self.db.refresh(db_job)
+        return db_job
+
+    def get_job(self, job_id: str) -> Optional[JobModel]:
+        """Get a job by ID."""
+        return self.db.query(JobModel).filter(JobModel.id == job_id).first()
+
+    def get_jobs_by_task(self, task_id: str) -> List[JobModel]:
+        """Get all jobs for a task."""
+        return (
+            self.db.query(JobModel)
+            .filter(JobModel.task_id == task_id)
+            .order_by(desc(JobModel.created_at))
+            .all()
+        )
+
+    def get_jobs_by_trace_id(self, trace_id: str) -> List[JobModel]:
+        """Get all jobs with a given trace_id."""
+        return (
+            self.db.query(JobModel)
+            .filter(JobModel.trace_id == trace_id)
+            .order_by(JobModel.created_at)
+            .all()
+        )
+
+    def claim_job(self, job_id: str, worker_id: str) -> Optional[JobModel]:
+        """Claim a job for processing by a worker.
+
+        Uses optimistic locking - only claims if status is 'pending'.
+        """
+        job = self.get_job(job_id)
+        if not job or job.status != "pending":
+            return None
+
+        job.status = "claimed"
+        job.worker_id = worker_id
+        job.claimed_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def claim_next_pending_job(self, worker_id: str) -> Optional[JobModel]:
+        """Claim the next pending job (FIFO order).
+
+        This is a simple implementation. For production, use
+        SELECT ... FOR UPDATE SKIP LOCKED for proper concurrency.
+        """
+        job = (
+            self.db.query(JobModel)
+            .filter(JobModel.status == "pending")
+            .order_by(JobModel.created_at)
+            .first()
+        )
+
+        if not job:
+            return None
+
+        return self.claim_job(job.id, worker_id)
+
+    def start_job(self, job_id: str) -> Optional[JobModel]:
+        """Mark a job as running."""
+        job = self.get_job(job_id)
+        if not job or job.status != "claimed":
+            return None
+
+        job.status = "running"
+        job.started_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def complete_job(
+        self,
+        job_id: str,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> Optional[JobModel]:
+        """Mark a job as completed."""
+        job = self.get_job(job_id)
+        if not job or job.status != "running":
+            return None
+
+        job.status = "completed"
+        job.completed_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        if result:
+            job.result = result
+
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def fail_job(
+        self,
+        job_id: str,
+        error: str,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> Optional[JobModel]:
+        """Mark a job as failed."""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+
+        job.status = "failed"
+        job.completed_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        job.error = error
+        if result:
+            job.result = result
+
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def get_pending_jobs(self, limit: int = 50) -> List[JobModel]:
+        """Get pending jobs for processing."""
+        return (
+            self.db.query(JobModel)
+            .filter(JobModel.status == "pending")
+            .order_by(JobModel.created_at)
+            .limit(limit)
+            .all()
+        )
+
+
+class ArtifactService:
+    """Service for managing artifacts in the database (Sprint-0).
+
+    Artifacts are outputs produced during task/job execution.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create_artifact(
+        self,
+        task_id: str,
+        trace_id: str,
+        kind: str,
+        job_id: Optional[str] = None,
+        artifact_id: Optional[str] = None,
+        uri: Optional[str] = None,
+        ref: Optional[str] = None,
+        content: Optional[str] = None,
+        content_type: Optional[str] = None,
+        size_bytes: Optional[int] = None,
+        checksum: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> ArtifactModel:
+        """Create a new artifact.
+
+        Args:
+            task_id: The task ID this artifact belongs to
+            trace_id: The trace_id for causality tracking
+            kind: Type of artifact (log, diff, report, file, metric, error)
+            job_id: Optional job ID if artifact was produced by a job
+            artifact_id: Optional custom artifact ID (defaults to UUID)
+            uri: External reference (S3, file path, etc.)
+            ref: Internal reference
+            content: Inline content for small artifacts
+            content_type: MIME type or content type description
+            size_bytes: Size of the artifact content
+            checksum: SHA256 or other checksum of content
+            meta: Additional metadata
+        """
+        db_artifact = ArtifactModel(
+            id=artifact_id or str(uuid.uuid4()),
+            task_id=task_id,
+            job_id=job_id,
+            trace_id=trace_id,
+            kind=kind,
+            uri=uri,
+            ref=ref,
+            content=content,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            checksum=checksum,
+            meta=meta,
+        )
+
+        self.db.add(db_artifact)
+        self.db.commit()
+        self.db.refresh(db_artifact)
+        return db_artifact
+
+    def get_artifact(self, artifact_id: str) -> Optional[ArtifactModel]:
+        """Get an artifact by ID."""
+        return (
+            self.db.query(ArtifactModel)
+            .filter(ArtifactModel.id == artifact_id)
+            .first()
+        )
+
+    def get_artifacts_by_task(self, task_id: str) -> List[ArtifactModel]:
+        """Get all artifacts for a task."""
+        return (
+            self.db.query(ArtifactModel)
+            .filter(ArtifactModel.task_id == task_id)
+            .order_by(ArtifactModel.created_at)
+            .all()
+        )
+
+    def get_artifacts_by_job(self, job_id: str) -> List[ArtifactModel]:
+        """Get all artifacts for a job."""
+        return (
+            self.db.query(ArtifactModel)
+            .filter(ArtifactModel.job_id == job_id)
+            .order_by(ArtifactModel.created_at)
+            .all()
+        )
+
+    def get_artifacts_by_trace_id(self, trace_id: str) -> List[ArtifactModel]:
+        """Get all artifacts with a given trace_id."""
+        return (
+            self.db.query(ArtifactModel)
+            .filter(ArtifactModel.trace_id == trace_id)
+            .order_by(ArtifactModel.created_at)
+            .all()
+        )
+
+    def get_artifacts_by_kind(
+        self, task_id: str, kind: str
+    ) -> List[ArtifactModel]:
+        """Get artifacts of a specific kind for a task."""
+        return (
+            self.db.query(ArtifactModel)
+            .filter(ArtifactModel.task_id == task_id)
+            .filter(ArtifactModel.kind == kind)
+            .order_by(ArtifactModel.created_at)
             .all()
         )

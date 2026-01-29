@@ -8,10 +8,13 @@ client = TestClient(app)
 
 
 def test_healthz():
-    """Test the /healthz endpoint."""
+    """Test the /healthz endpoint (Sprint-0: includes DB check)."""
     response = client.get("/healthz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    # Sprint-0 format: {"ok": bool, "db": bool}
+    assert "ok" in data
+    assert "db" in data
 
 
 def test_version():

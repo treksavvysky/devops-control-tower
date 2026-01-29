@@ -1,7 +1,7 @@
 # CWOM v0.1 Completion Roadmap
 
 **Date**: 2026-01-26
-**Status**: Phase 1 Complete, Phase 2-4 Pending
+**Status**: Phase 1-2 Complete, Phase 3-4 Pending
 
 ---
 
@@ -16,7 +16,7 @@ Based on the CWOM-DELIVERABLE-CHECKLIST.md requirements:
 | **Migrations apply cleanly** | ✅ Fixed | Chain: `a1b2c3d4e5f6 → b2f6a732d137 → c3e8f9a21b4d → d4a9b8c2e5f6 → e5f6a7b8c9d0` |
 | **Downgrade sanity works** | 🟡 Needs testing | Downgrade functions exist with dialect checks, untested at runtime |
 | **CRUD tests cover linkage** | 🟡 Partial | Tests verify structure but not actual DB round-trip with relationships |
-| **AuditLog exists** | ❌ Missing | Not implemented |
+| **AuditLog exists** | ✅ Complete | Phase 2 implemented |
 
 ---
 
@@ -111,88 +111,65 @@ Options:
 
 ---
 
-### Phase 2: Implement AuditLog (Priority: HIGH)
+### Phase 2: Implement AuditLog (Priority: HIGH) ✅ COMPLETE
 
-#### 2.1 Create AuditLog Model
+**Completed**: 2026-01-26
+
+#### 2.1 Create AuditLog Model ✅
 
 **File**: `devops_control_tower/db/audit_models.py`
 
-```python
-class AuditLogModel(Base):
-    """Audit log for forensics and event sourcing."""
+Model created with:
+- `id`, `ts`, `actor_kind`, `actor_id`, `action`
+- `entity_kind`, `entity_id`, `before`, `after`
+- `note`, `trace_id`
+- Actions: `created`, `updated`, `status_changed`, `deleted`, `linked`, `unlinked`
 
-    __tablename__ = "audit_log"
-
-    id = Column(String(36), primary_key=True)
-    ts = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
-
-    # Who did it
-    actor_kind = Column(Enum("human", "agent", "system", name="audit_actor_kind"), nullable=False)
-    actor_id = Column(String(128), nullable=False, index=True)
-
-    # What action
-    action = Column(String(50), nullable=False, index=True)  # created, updated, status_changed, deleted
-
-    # What entity was affected
-    entity_kind = Column(String(50), nullable=False, index=True)  # Repo, Issue, Run, Task, etc.
-    entity_id = Column(String(128), nullable=False, index=True)
-
-    # State before/after
-    before = Column(JSON, nullable=True)
-    after = Column(JSON, nullable=True)
-
-    # Context
-    note = Column(Text, nullable=True)
-    trace_id = Column(String(36), nullable=True, index=True)
-
-    __table_args__ = (
-        Index("ix_audit_log_entity", "entity_kind", "entity_id"),
-        Index("ix_audit_log_actor", "actor_kind", "actor_id"),
-        Index("ix_audit_log_ts_action", "ts", "action"),
-    )
-```
-
-#### 2.2 Create AuditLog Migration
+#### 2.2 Create AuditLog Migration ✅
 
 **File**: `devops_control_tower/db/migrations/versions/f7a8b9c0d1e2_create_audit_log.py`
 
-#### 2.3 Create AuditLog Service
+Creates `audit_log` table with 10 indexes for efficient querying.
+
+#### 2.3 Create AuditLog Service ✅
 
 **File**: `devops_control_tower/db/audit_service.py`
 
-```python
-class AuditService:
-    @staticmethod
-    def log_create(db: Session, entity_kind: str, entity_id: str, after: dict, actor: Actor, trace_id: str = None):
-        ...
+Methods:
+- `log_create()` - Log object creation
+- `log_update()` - Log object updates
+- `log_status_change()` - Log status transitions
+- `log_delete()` - Log object deletion
+- `log_link()` - Log relationship creation
+- `log_unlink()` - Log relationship removal
+- `query_by_entity()` - Get history for an entity
+- `query_by_trace()` - Get events by trace_id
+- `query_by_actor()` - Get events by actor
+- `query_by_action()` - Get events by action type
+- `query_recent()` - Get recent events
 
-    @staticmethod
-    def log_update(db: Session, entity_kind: str, entity_id: str, before: dict, after: dict, actor: Actor, trace_id: str = None):
-        ...
+#### 2.4 Integrate AuditLog with CWOM Services ✅
 
-    @staticmethod
-    def log_status_change(db: Session, entity_kind: str, entity_id: str, old_status: str, new_status: str, actor: Actor):
-        ...
+All CWOM services updated with audit integration:
+- `RepoService.create()` - logs creation
+- `IssueService.create()`, `update_status()`, `link_*()` - logs all changes
+- `ContextPacketService.create()` - logs creation (immutable)
+- `ConstraintSnapshotService.create()` - logs creation (immutable)
+- `DoctrineRefService.create()` - logs creation
+- `RunService.create()`, `update()` - logs creation and updates
+- `ArtifactService.create()` - logs creation
 
-    @staticmethod
-    def query_by_entity(db: Session, entity_kind: str, entity_id: str) -> List[AuditLog]:
-        ...
+All methods accept optional `actor_kind`, `actor_id`, `trace_id` parameters.
 
-    @staticmethod
-    def query_by_trace(db: Session, trace_id: str) -> List[AuditLog]:
-        ...
-```
+#### 2.5 Tests ✅
 
-#### 2.4 Integrate AuditLog with CWOM Services
+**File**: `tests/test_audit_log.py`
 
-Add audit logging to:
-- Repo create
-- Issue create/update/status_change
-- Run create/update/status_change
-- Artifact create
-- ContextPacket create
-- ConstraintSnapshot create
-- DoctrineRef create
+Tests for:
+- Model structure and `to_dict()`
+- All logging methods
+- All query methods
+- Index existence verification
 
 ---
 
@@ -317,7 +294,7 @@ Pass means all of this is true:
 
 1. **SQLAlchemy models exist for**:
    - ✅ Repo, Issue, ContextPacket, Run, Artifact, ConstraintSnapshot, DoctrineRef
-   - ⬜ AuditLog (after Phase 2)
+   - ✅ AuditLog (Phase 2 complete)
 
 2. **Alembic migrations**:
    - ⬜ `alembic upgrade head` succeeds on a fresh DB (creates ALL tables)
@@ -336,34 +313,34 @@ Pass means all of this is true:
    - ⬜ Query via join tables works
 
 5. **AuditLog**:
-   - ⬜ Model exists
-   - ⬜ Migration exists
-   - ⬜ Service implemented
-   - ⬜ Integrated with CWOM operations
+   - ✅ Model exists (`db/audit_models.py`)
+   - ✅ Migration exists (`f7a8b9c0d1e2_create_audit_log.py`)
+   - ✅ Service implemented (`db/audit_service.py`)
+   - ✅ Integrated with CWOM operations (all services)
 
 ---
 
-## 6. Files to Create/Modify
+## 6. Files Created/Modified
 
-### New Files
-- `devops_control_tower/db/audit_models.py`
-- `devops_control_tower/db/audit_service.py`
-- `devops_control_tower/db/migrations/versions/f7a8b9c0d1e2_create_audit_log.py`
+### Phase 2 Files (Complete)
+- ✅ `devops_control_tower/db/audit_models.py` - Created
+- ✅ `devops_control_tower/db/audit_service.py` - Created
+- ✅ `devops_control_tower/db/migrations/versions/f7a8b9c0d1e2_create_audit_log.py` - Created
+- ✅ `devops_control_tower/db/__init__.py` - Updated to export AuditLog
+- ✅ `devops_control_tower/cwom/services.py` - Updated with audit logging
+- ✅ `tests/test_audit_log.py` - Created
+
+### Phase 3-4 Files (Pending)
 - `tests/test_cwom_crud_integration.py`
 - `scripts/verify_db_fresh.sh`
-
-### Modified Files
-- `devops_control_tower/db/cwom_models.py` - Add trace_id columns
-- `devops_control_tower/db/__init__.py` - Export AuditLog
-- `devops_control_tower/cwom/services.py` - Add audit logging calls
 - `.github/workflows/*.yml` - Add fresh DB verification step
 
 ---
 
 ## 7. Next Steps
 
-1. **Immediate**: Run `alembic upgrade head` on a fresh SQLite DB to verify current state
-2. **Phase 1**: Fix trace_id model mismatch (30min task)
-3. **Phase 2**: Implement AuditLog (highest value add per checklist)
-4. **Phase 3**: Add integration tests with real DB
+1. ~~**Immediate**: Run `alembic upgrade head` on a fresh SQLite DB to verify current state~~ ✅
+2. ~~**Phase 1**: Fix trace_id model mismatch~~ ✅ Complete
+3. ~~**Phase 2**: Implement AuditLog~~ ✅ Complete (2026-01-26)
+4. **Phase 3**: Add integration tests with real DB (NEXT)
 5. **Phase 4**: CI verification

@@ -21,7 +21,9 @@ Development proceeds in stages. Each stage has a summary document tracking progr
 
 **CWOM v0.1 (Phases 1-4 Complete):** Pydantic schemas, SQLAlchemy models, API endpoints, and Task-CWOM integration all implemented. See CWOM section below for details.
 
-**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts. Also: AuditLog implementation per CWOM-COMPLETION-ROADMAP.md.
+**CWOM Completion Phase 2 (Complete):** AuditLog model, migration, service, and integration with all CWOM services.
+
+**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts.
 
 ## Common Commands
 
@@ -86,6 +88,8 @@ devops_control_tower/
 │   ├── base.py              # SQLAlchemy engine, SessionLocal, init_database()
 │   ├── models.py            # ORM models (Event, Workflow, Agent, Task, Job, Artifact)
 │   ├── cwom_models.py       # CWOM SQLAlchemy models (7 object types + 6 join tables)
+│   ├── audit_models.py      # AuditLog SQLAlchemy model
+│   ├── audit_service.py     # AuditService for forensics and event sourcing
 │   ├── services.py          # EventService, WorkflowService, AgentService, TaskService
 │   └── migrations/          # Alembic migrations
 ├── worker/                  # Sprint-0 worker implementation (in progress)
@@ -175,6 +179,7 @@ Key test files:
 - `tests/test_cwom_api.py` - CWOM REST API endpoint tests
 - `tests/test_task_cwom_integration.py` - Task-CWOM adapter tests
 - `tests/test_sprint0.py` - Sprint-0 worker and trace tests
+- `tests/test_audit_log.py` - AuditLog model and service tests
 
 ## Canonical Work Object Model (CWOM) v0.1
 
@@ -352,9 +357,9 @@ All CWOM objects are accessible via REST API under `/cwom` prefix:
 | Migrations apply cleanly | ✅ Complete (consolidated) |
 | trace_id in models | ✅ Complete |
 | CRUD tests cover linkage | 🟡 Partial (structure tests, not full round-trip) |
-| AuditLog | ❌ Not implemented |
+| AuditLog | ✅ Complete (Phase 2) |
 
-**Migration Chain (after Phase 1):**
+**Migration Chain (after Phase 2):**
 ```
 a1b2c3d4e5f6 (core: events, workflows, agents)
     ↓
@@ -365,6 +370,8 @@ c3e8f9a21b4d (CWOM tables)
 d4a9b8c2e5f6 (cwom_issue_id to tasks)
     ↓
 e5f6a7b8c9d0 (trace_id, jobs, artifacts)
+    ↓
+f7a8b9c0d1e2 (audit_log table)
 ```
 
 **Resolved Issues (Phase 1):**
@@ -372,7 +379,7 @@ e5f6a7b8c9d0 (trace_id, jobs, artifacts)
 - ~~Two migration directories~~ - Consolidated to single `devops_control_tower/db/migrations/`
 - ~~Core tables rely on init_database()~~ - New migration `a1b2c3d4e5f6` creates core tables
 
-**Remaining Work:** See `docs/cwom/CWOM-COMPLETION-ROADMAP.md` for Phases 2-4 (AuditLog, integration tests, CI verification).
+**Remaining Work:** See `docs/cwom/CWOM-COMPLETION-ROADMAP.md` for Phases 3-4 (integration tests, CI verification).
 
 ### Sprint-0: Trace ID and Worker
 
@@ -387,3 +394,133 @@ Sprint-0 adds end-to-end causality tracking via `trace_id`:
 - `cwom_*.trace_id` - All CWOM tables get trace_id for unified traceability
 
 **Models:** `JobModel` and `ArtifactModel` in `db/models.py`
+
+## AuditLog (Phase 2)
+
+AuditLog provides forensics and event sourcing for all CWOM operations. Every significant state change is recorded with before/after snapshots.
+
+**Files:**
+- `devops_control_tower/db/audit_models.py` - SQLAlchemy model
+- `devops_control_tower/db/audit_service.py` - Service layer
+- Migration: `f7a8b9c0d1e2_create_audit_log.py`
+
+### AuditLogModel Schema
+
+```python
+AuditLogModel:
+    id: str              # ULID
+    ts: datetime         # Timestamp (indexed)
+    actor_kind: str      # "human" | "agent" | "system"
+    actor_id: str        # Who performed the action (indexed)
+    action: str          # "created" | "updated" | "status_changed" | "deleted" | "linked" | "unlinked"
+    entity_kind: str     # "Repo" | "Issue" | "Run" | etc. (indexed)
+    entity_id: str       # ID of affected entity (indexed)
+    before: dict | None  # State before action (JSON)
+    after: dict | None   # State after action (JSON)
+    note: str | None     # Human-readable note
+    trace_id: str | None # For distributed tracing (indexed)
+```
+
+### AuditService Usage
+
+```python
+from devops_control_tower.db.audit_service import AuditService
+
+audit = AuditService(db_session)
+
+# Log creation
+audit.log_create(
+    entity_kind="Issue",
+    entity_id=issue.id,
+    after=issue.to_dict(),
+    actor_kind="agent",
+    actor_id="worker-1",
+    trace_id="trace-123",
+)
+
+# Log status change
+audit.log_status_change(
+    entity_kind="Run",
+    entity_id=run.id,
+    old_status="planned",
+    new_status="running",
+    actor_kind="system",
+    actor_id="worker-loop",
+)
+
+# Log update
+audit.log_update(
+    entity_kind="Issue",
+    entity_id=issue.id,
+    before=old_state,
+    after=new_state,
+    actor_kind="human",
+    actor_id="user-1",
+)
+
+# Log linking
+audit.log_link(
+    entity_kind="Issue",
+    entity_id=issue.id,
+    linked_kind="ContextPacket",
+    linked_id=packet.id,
+)
+
+# Query by entity
+history = audit.query_by_entity("Issue", issue.id)
+
+# Query by trace
+trace_events = audit.query_by_trace("trace-123")
+
+# Query by actor
+user_actions = audit.query_by_actor("human", "user-1")
+
+# Query recent
+recent = audit.query_recent(limit=50, entity_kind="Run")
+```
+
+### CWOM Service Integration
+
+All CWOM services automatically create audit log entries when:
+- Objects are created (`log_create`)
+- Status changes (`log_status_change`)
+- Objects are updated (`log_update`)
+- Objects are linked (`log_link`)
+
+Actor information and trace_id can be passed to service methods:
+
+```python
+from devops_control_tower.cwom.services import IssueService
+
+issue_service = IssueService(db_session)
+
+# Create with audit
+issue = issue_service.create(
+    issue_data,
+    actor_kind="human",
+    actor_id="user-1",
+    trace_id="trace-123",
+)
+
+# Update status with audit
+issue_service.update_status(
+    issue.id,
+    "running",
+    actor_kind="agent",
+    actor_id="worker-1",
+)
+```
+
+### Indexes
+
+The audit_log table has the following indexes for efficient querying:
+- `ix_audit_log_ts` - Timestamp queries
+- `ix_audit_log_actor_id` - Actor queries
+- `ix_audit_log_action` - Action type queries
+- `ix_audit_log_entity_kind` - Entity type queries
+- `ix_audit_log_entity_id` - Entity ID queries
+- `ix_audit_log_trace_id` - Trace correlation
+- `ix_audit_log_entity` - Composite (entity_kind, entity_id)
+- `ix_audit_log_actor` - Composite (actor_kind, actor_id)
+- `ix_audit_log_ts_action` - Composite (ts, action)
+- `ix_audit_log_entity_ts` - Composite (entity_kind, entity_id, ts)
