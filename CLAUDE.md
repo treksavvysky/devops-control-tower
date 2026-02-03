@@ -74,13 +74,11 @@ devops_control_tower/
 │   ├── __init__.py          # CWOM exports (all schemas, enums, primitives)
 │   ├── enums.py             # Status, IssueType, ArtifactType, etc.
 │   ├── primitives.py        # Actor, Ref, Source, Constraints, etc.
-│   ├── repo.py              # Repo schema
-│   ├── issue.py             # Issue schema
-│   ├── context_packet.py    # ContextPacket schema
-│   ├── constraint_snapshot.py # ConstraintSnapshot schema
-│   ├── doctrine_ref.py      # DoctrineRef schema
-│   ├── run.py               # Run schema
-│   └── artifact.py          # Artifact schema
+│   ├── repo.py, issue.py, run.py, artifact.py  # 7 CWOM object schemas
+│   ├── context_packet.py, constraint_snapshot.py, doctrine_ref.py
+│   ├── routes.py            # REST API endpoints (/cwom/*)
+│   ├── services.py          # Service layer (CRUD + audit integration)
+│   └── task_adapter.py      # Task ↔ CWOM bidirectional conversion
 ├── policy/
 │   ├── __init__.py          # Exports PolicyError, evaluate
 │   └── task_gate.py         # Pure policy evaluation + normalization
@@ -173,13 +171,28 @@ Coverage target: 40% (configured in pyproject.toml)
 Key test files:
 - `tests/test_api_tasks.py` - Task enqueue endpoint tests
 - `tests/test_policy.py` - Policy validation tests
-- `tests/test_contract_snapshot.py` - Schema contract tests
-- `tests/test_cwom_contract.py` - CWOM Pydantic schema contract tests
-- `tests/test_cwom_db_models.py` - CWOM SQLAlchemy model tests
-- `tests/test_cwom_api.py` - CWOM REST API endpoint tests
-- `tests/test_task_cwom_integration.py` - Task-CWOM adapter tests
-- `tests/test_sprint0.py` - Sprint-0 worker and trace tests
+- `tests/test_contract_snapshot.py` - Schema contract tests (prevents breaking changes)
+- `tests/test_cwom_*.py` - CWOM schemas, DB models, API, integration
 - `tests/test_audit_log.py` - AuditLog model and service tests
+- `tests/test_sprint0.py` - Sprint-0 worker and trace tests
+
+## Quick API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/tasks/enqueue` | POST | Submit task (policy validated) |
+| `/tasks/{id}` | GET | Retrieve task by ID |
+| `/cwom/repos` | POST, GET | Create/list repos |
+| `/cwom/issues` | POST, GET | Create/list issues |
+| `/cwom/issues/{id}` | GET, PATCH | Get/update issue |
+| `/cwom/runs` | POST, GET | Create/list runs |
+| `/cwom/runs/{id}` | GET, PATCH | Get/update run |
+| `/cwom/artifacts` | POST | Create artifact |
+| `/cwom/context-packets` | POST | Create (immutable) |
+| `/cwom/constraint-snapshots` | POST | Create (immutable) |
+| `/cwom/doctrine-refs` | POST, GET | Create/list |
+
+Use `?create_cwom=true` on `/tasks/enqueue` to auto-create CWOM objects.
 
 ## Canonical Work Object Model (CWOM) v0.1
 
@@ -326,23 +339,7 @@ POST /tasks/enqueue?create_cwom=true
 
 ### CWOM API Endpoints (Phase 3)
 
-All CWOM objects are accessible via REST API under `/cwom` prefix:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/cwom/repos` | POST, GET | Create/list repos |
-| `/cwom/repos/{id}` | GET | Get repo by ID |
-| `/cwom/issues` | POST, GET | Create/list issues |
-| `/cwom/issues/{id}` | GET, PATCH | Get/update issue |
-| `/cwom/context-packets` | POST | Create context packet |
-| `/cwom/context-packets/{id}` | GET | Get context packet (immutable) |
-| `/cwom/constraint-snapshots` | POST, GET | Create/list constraint snapshots |
-| `/cwom/constraint-snapshots/{id}` | GET | Get constraint snapshot (immutable) |
-| `/cwom/doctrine-refs` | POST, GET | Create/list doctrine refs |
-| `/cwom/runs` | POST, GET | Create/list runs |
-| `/cwom/runs/{id}` | GET, PATCH | Get/update run |
-| `/cwom/artifacts` | POST | Create artifact |
-| `/cwom/artifacts/{id}` | GET | Get artifact |
+All CWOM objects are accessible via REST API under `/cwom` prefix. See Quick API Reference above for the full endpoint table.
 
 **Immutability:** ContextPacket and ConstraintSnapshot return 405 Method Not Allowed for PUT/PATCH operations.
 
@@ -428,99 +425,31 @@ from devops_control_tower.db.audit_service import AuditService
 
 audit = AuditService(db_session)
 
-# Log creation
-audit.log_create(
-    entity_kind="Issue",
-    entity_id=issue.id,
-    after=issue.to_dict(),
-    actor_kind="agent",
-    actor_id="worker-1",
-    trace_id="trace-123",
-)
+# Log operations
+audit.log_create(entity_kind="Issue", entity_id=issue.id, after=issue.to_dict(), actor_kind="agent", actor_id="worker-1", trace_id="trace-123")
+audit.log_status_change(entity_kind="Run", entity_id=run.id, old_status="planned", new_status="running", actor_kind="system", actor_id="worker-loop")
+audit.log_update(entity_kind="Issue", entity_id=issue.id, before=old_state, after=new_state, actor_kind="human", actor_id="user-1")
+audit.log_link(entity_kind="Issue", entity_id=issue.id, linked_kind="ContextPacket", linked_id=packet.id)
 
-# Log status change
-audit.log_status_change(
-    entity_kind="Run",
-    entity_id=run.id,
-    old_status="planned",
-    new_status="running",
-    actor_kind="system",
-    actor_id="worker-loop",
-)
-
-# Log update
-audit.log_update(
-    entity_kind="Issue",
-    entity_id=issue.id,
-    before=old_state,
-    after=new_state,
-    actor_kind="human",
-    actor_id="user-1",
-)
-
-# Log linking
-audit.log_link(
-    entity_kind="Issue",
-    entity_id=issue.id,
-    linked_kind="ContextPacket",
-    linked_id=packet.id,
-)
-
-# Query by entity
+# Query operations
 history = audit.query_by_entity("Issue", issue.id)
-
-# Query by trace
 trace_events = audit.query_by_trace("trace-123")
-
-# Query by actor
 user_actions = audit.query_by_actor("human", "user-1")
-
-# Query recent
 recent = audit.query_recent(limit=50, entity_kind="Run")
 ```
 
 ### CWOM Service Integration
 
-All CWOM services automatically create audit log entries when:
-- Objects are created (`log_create`)
-- Status changes (`log_status_change`)
-- Objects are updated (`log_update`)
-- Objects are linked (`log_link`)
-
-Actor information and trace_id can be passed to service methods:
+All CWOM services automatically create audit log entries for create, status_change, update, and link operations. Pass `actor_kind`, `actor_id`, and `trace_id` to service methods for full traceability.
 
 ```python
 from devops_control_tower.cwom.services import IssueService
 
 issue_service = IssueService(db_session)
-
-# Create with audit
-issue = issue_service.create(
-    issue_data,
-    actor_kind="human",
-    actor_id="user-1",
-    trace_id="trace-123",
-)
-
-# Update status with audit
-issue_service.update_status(
-    issue.id,
-    "running",
-    actor_kind="agent",
-    actor_id="worker-1",
-)
+issue = issue_service.create(issue_data, actor_kind="human", actor_id="user-1", trace_id="trace-123")
+issue_service.update_status(issue.id, "running", actor_kind="agent", actor_id="worker-1")
 ```
 
-### Indexes
+### Audit Indexes
 
-The audit_log table has the following indexes for efficient querying:
-- `ix_audit_log_ts` - Timestamp queries
-- `ix_audit_log_actor_id` - Actor queries
-- `ix_audit_log_action` - Action type queries
-- `ix_audit_log_entity_kind` - Entity type queries
-- `ix_audit_log_entity_id` - Entity ID queries
-- `ix_audit_log_trace_id` - Trace correlation
-- `ix_audit_log_entity` - Composite (entity_kind, entity_id)
-- `ix_audit_log_actor` - Composite (actor_kind, actor_id)
-- `ix_audit_log_ts_action` - Composite (ts, action)
-- `ix_audit_log_entity_ts` - Composite (entity_kind, entity_id, ts)
+The `audit_log` table has indexes on: `ts`, `actor_id`, `action`, `entity_kind`, `entity_id`, `trace_id`, plus composite indexes for common query patterns (`entity_kind + entity_id`, `actor_kind + actor_id`, `ts + action`, `entity_kind + entity_id + ts`).
