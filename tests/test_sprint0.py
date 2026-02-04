@@ -8,66 +8,21 @@ These tests verify the end-to-end trace_id propagation:
 4. Worker creates artifact row with same trace_id
 5. /healthz responds 200 with db: true
 6. Can query by trace_id to reconstruct timeline
+
+Database setup is handled by the shared fixtures in conftest.py.
 """
 
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
 
-from devops_control_tower.api import app
-from devops_control_tower.db.base import Base, get_db
 from devops_control_tower.db.models import ArtifactModel, JobModel, TaskModel
 from devops_control_tower.db.services import ArtifactService, JobService, TaskService
 from devops_control_tower.worker import Worker, StubActionRunner
 
 
-# Test database setup
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_sprint0.db"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def override_get_db():
-    """Override database dependency for testing."""
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-
-app.dependency_overrides[get_db] = override_get_db
-
-
-@pytest.fixture(scope="module")
-def test_db():
-    """Create test database tables."""
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
-
-
-@pytest.fixture
-def db_session(test_db):
-    """Get a test database session."""
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.close()
-
-
-@pytest.fixture
-def client(test_db):
-    """Get a test client."""
-    return TestClient(app)
+# Note: db_session and client fixtures are provided by conftest.py
 
 
 @pytest.fixture

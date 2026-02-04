@@ -5,10 +5,7 @@ Tests the bidirectional mapping between JCT V1 Tasks and CWOM objects.
 """
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
-from devops_control_tower.api import app
 from devops_control_tower.cwom.task_adapter import (
     task_to_cwom,
     issue_to_task,
@@ -16,8 +13,6 @@ from devops_control_tower.cwom.task_adapter import (
     ISSUE_TYPE_TO_OPERATION,
 )
 from devops_control_tower.cwom.enums import IssueType, Status
-from devops_control_tower.db.base import get_db
-from devops_control_tower.db.models import TaskModel
 from devops_control_tower.schemas.task_v1 import (
     TaskCreateV1,
     TaskCreateLegacyV1,
@@ -27,12 +22,7 @@ from devops_control_tower.schemas.task_v1 import (
 )
 
 
-# Fixture for test client
-@pytest.fixture
-def client():
-    """Create test client."""
-    with TestClient(app) as c:
-        yield c
+# Note: client and db_session fixtures are provided by conftest.py
 
 
 # Fixture for sample task spec
@@ -122,13 +112,6 @@ class TestOperationMapping:
 class TestTaskToCWOM:
     """Tests for task_to_cwom conversion."""
 
-    @pytest.fixture
-    def db_session(self, client):
-        """Get a database session from the test client."""
-        # This uses the test database configured for the app
-        for db in get_db():
-            yield db
-
     def test_task_to_cwom_creates_repo(self, db_session, sample_task_v1):
         """task_to_cwom creates a Repo for the target."""
         result = task_to_cwom(sample_task_v1, db_session)
@@ -186,12 +169,6 @@ class TestTaskToCWOM:
 
 class TestIssueToTask:
     """Tests for issue_to_task conversion."""
-
-    @pytest.fixture
-    def db_session(self, client):
-        """Get a database session from the test client."""
-        for db in get_db():
-            yield db
 
     def test_issue_to_task_basic(self, db_session, sample_task_v1):
         """issue_to_task converts CWOM objects back to Task format."""

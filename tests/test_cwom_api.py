@@ -6,60 +6,16 @@ Tests verify:
 2. Referential integrity validation
 3. Immutability constraints for ContextPacket and ConstraintSnapshot
 4. Query filtering and pagination
+
+Database setup is handled by the shared fixtures in conftest.py.
 """
-
-import os
-
-# Set environment variable before importing application code
-os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "testorg/"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from devops_control_tower.api import app
-from devops_control_tower.db.base import Base, get_db
 
-# Create an in-memory SQLite database for testing
-TEST_DATABASE_URL = "sqlite:///:memory:"
-test_engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-
-
-def override_get_db():
-    """Override the get_db dependency for testing."""
-    db = TestSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-# Override the dependency before creating the test client
-app.dependency_overrides[get_db] = override_get_db
-
-
-@pytest.fixture(scope="module", autouse=True)
-def setup_database():
-    """Create all tables before running tests, drop them after."""
-    # Import models to register them with Base
-    from devops_control_tower.db import models  # noqa: F401
-    from devops_control_tower.db import cwom_models  # noqa: F401
-
-    # Drop all tables first to ensure clean slate
-    Base.metadata.drop_all(bind=test_engine)
-    # Create all tables
-    Base.metadata.create_all(bind=test_engine)
-    yield
-    Base.metadata.drop_all(bind=test_engine)
-
-
+# Use a module-level client - DB is configured in conftest.py
 client = TestClient(app)
 
 
