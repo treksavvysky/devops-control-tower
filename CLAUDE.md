@@ -8,7 +8,7 @@ DevOps Control Tower (JCT - Jules Control Tower) is an orchestration backbone fo
 
 **Current Focus (v0 Spine):** The minimal viable path is `/tasks/enqueue → DB row → Worker → Trace folder`. Advanced features (LLM workflows, monitoring agents, event routing) are disabled until this spine is validated.
 
-**Next Stage:** Worker implementation to process queued tasks and produce trace artifacts.
+**v0 Spine Status:** Complete. Intake and Worker are working end-to-end.
 
 ## Common Commands
 
@@ -23,6 +23,7 @@ alembic upgrade head                      # Apply migrations
 
 # Run
 python -m devops_control_tower.main       # Start FastAPI server
+python -m devops_control_tower.worker     # Start worker (processes queued tasks)
 docker compose up                         # Run with Docker
 
 # Testing
@@ -58,13 +59,18 @@ devops_control_tower/
 ├── core/
 │   └── enhanced_orchestrator.py  # Global singleton, DB-integrated
 ├── agents/base.py       # BaseAgent (abstract), AIAgent (LLM-enabled)
-└── worker/              # Sprint-0 worker (in progress)
+└── worker/              # v0 Worker
+    ├── loop.py          # Main worker loop (poll, claim, execute, complete)
+    ├── executor.py      # Task executors (StubExecutor for v0)
+    └── storage.py       # Trace storage (file:// for v0, s3:// for v2)
 ```
 
 ### Key Patterns
 
 - **Database**: SQLite by default. Set `DATABASE_URL` for Postgres.
 - **Task Intake**: `POST /tasks/enqueue` → policy validation → DB persist with status `queued`
+- **Worker**: Polls for `queued` tasks → creates CWOM Run → executes → writes trace folder
+- **Trace Storage**: URI-based (`file://` v0, `s3://` v2). Run stores `artifact_root_uri`.
 - **CWOM Causality**: `Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact`
 - **AuditLog**: All CWOM operations auto-logged with before/after snapshots
 
@@ -114,6 +120,8 @@ Use `?create_cwom=true` on `/tasks/enqueue` to auto-create CWOM objects.
 ```bash
 DATABASE_URL=sqlite:///./devops_control_tower.db  # Or postgresql://...
 JCT_ALLOWED_REPO_PREFIXES=myorg/,partnerorg/      # Empty = deny all repos
+JCT_TRACE_ROOT=file:///var/lib/jct/runs           # Trace storage (file:// or s3://)
+WORKER_POLL_INTERVAL=5                             # Seconds between polls
 DEBUG=false
 API_PORT=8000
 OPENAI_API_KEY=...     # For AI agents
@@ -133,11 +141,18 @@ Key test files:
 - `tests/test_cwom_*.py` - CWOM schemas, DB, API, integration
 - `tests/test_audit_log.py` - AuditLog model and service
 
+Integration test scripts:
+- `scripts/test_intake.sh` - End-to-end intake flow (9 tests)
+- `scripts/test_worker.sh` - End-to-end worker flow (7 tests)
+
 ## Stage Progress
 
 - **Stage 1** (Complete): Task Contract + Intake Gate
+- **Stage 2** (Complete): Worker + Trace Folders
 - **CWOM v0.1** (Phases 1-4 Complete): Schemas, DB models, API, Task-CWOM integration
 - **AuditLog** (Complete): Event sourcing for all CWOM operations
+
+**v0 Spine Validated**: `queued task → Worker → trace folder` working end-to-end.
 
 Progress docs:
 - `STAGE-01-SUMMARY.md`
@@ -202,4 +217,42 @@ d4a9b8c2e5f6 (cwom_issue_id to tasks)
 e5f6a7b8c9d0 (trace_id, jobs, artifacts)
     ↓
 f7a8b9c0d1e2 (audit_log table)
+    ↓
+g8b9c0d1e2f3 (FK tasks.cwom_issue_id)
+    ↓
+h9c0d1e2f3a4 (artifact_root_uri on runs)
+```
+
+## Worker Reference
+
+```bash
+# Start worker
+python -m devops_control_tower.worker
+
+# With options
+python -m devops_control_tower.worker --poll-interval 10 --executor stub
+```
+
+### Trace Folder Structure
+
+```
+/var/lib/jct/runs/{run_id}/
+├── manifest.json       # Run metadata, timestamps, status, result
+├── events.jsonl        # Structured events (machine-parseable)
+├── trace.log           # Human-readable execution log
+├── context.json        # ContextPacket snapshot (if available)
+├── constraints.json    # ConstraintSnapshot (if available)
+└── artifacts/          # Output files from executor
+    └── output.md       # Stub executor placeholder
+```
+
+### Worker Flow
+
+```
+1. Poll: Find tasks with status='queued'
+2. Claim: Atomically update to 'running' (optimistic locking)
+3. Create Run: CWOM Run with artifact_root_uri
+4. Execute: StubExecutor (v0) or real executor (v1+)
+5. Write trace: Folder with manifest, events, artifacts
+6. Complete: Update task/run/issue status to 'done'/'completed'
 ```

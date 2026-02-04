@@ -726,6 +726,10 @@ class CWOMRunModel(Base):
     # Failure - stored as JSON (Failure object) if failed
     failure = Column(JSON, nullable=True)
 
+    # Trace storage URI (v0: file://, v2: s3://)
+    # Example: file:///var/lib/jct/runs/{run_id}/
+    artifact_root_uri = Column(String(2000), nullable=True)
+
     # Metadata
     tags = Column(JSON, nullable=False, default=list)
     meta = Column(JSON, nullable=False, default=dict)
@@ -789,6 +793,7 @@ class CWOMRunModel(Base):
             "cost": self.cost,
             "outputs": self.outputs,
             "failure": self.failure,
+            "artifact_root_uri": self.artifact_root_uri,
             "tags": self.tags,
             "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,

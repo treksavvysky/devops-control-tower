@@ -67,6 +67,23 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed repository namespace prefixes (e.g., 'myorg/,anotherorg/'). Empty string = deny all.",
     )
 
+    # Worker Configuration
+    jct_trace_root: str = Field(
+        default="file:///var/lib/jct/runs",
+        env="JCT_TRACE_ROOT",
+        description="URI for trace storage root. Supports file:// (v0) and s3:// (v2).",
+    )
+    worker_poll_interval: int = Field(
+        default=5,
+        env="WORKER_POLL_INTERVAL",
+        description="Seconds between polling for queued tasks.",
+    )
+    worker_claim_limit: int = Field(
+        default=1,
+        env="WORKER_CLAIM_LIMIT",
+        description="Number of tasks to claim per poll cycle.",
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
