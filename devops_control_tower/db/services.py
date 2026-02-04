@@ -3,12 +3,20 @@ Database services for DevOps Control Tower.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
+
+
+@dataclass
+class TaskCreateResult:
+    """Result of task creation, indicating if task was new or existing (idempotency)."""
+    task: "TaskModel"
+    created: bool  # True if newly created, False if existing (idempotency hit)
 
 from ..data.models.events import Event
 from ..schemas.task_v1 import TaskCreateV1, TaskCreateLegacyV1
@@ -278,18 +286,21 @@ class TaskService:
 
     def create_task(
         self, task_spec: TaskCreateLegacyV1, trace_id: Optional[str] = None
-    ) -> TaskModel:
+    ) -> TaskCreateResult:
         """Create a new task from V1 spec.
 
         Args:
             task_spec: The V1 task specification
             trace_id: Optional trace_id for end-to-end causality tracking (Sprint-0)
+
+        Returns:
+            TaskCreateResult with task and created flag (False = idempotency hit)
         """
         # Check for existing task with same idempotency key
         if task_spec.idempotency_key:
             existing = self.get_task_by_idempotency_key(task_spec.idempotency_key)
             if existing:
-                return existing
+                return TaskCreateResult(task=existing, created=False)
 
         db_task = TaskModel(
             version=task_spec.version,
@@ -321,7 +332,7 @@ class TaskService:
         self.db.add(db_task)
         self.db.commit()
         self.db.refresh(db_task)
-        return db_task
+        return TaskCreateResult(task=db_task, created=True)
 
     def get_task(self, task_id: Union[str, uuid.UUID]) -> Optional[TaskModel]:
         """Get a task by ID."""

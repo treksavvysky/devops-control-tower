@@ -21,6 +21,7 @@ from .core.enhanced_orchestrator import EnhancedOrchestrator
 from .data.models.events import Event, EventPriority, EventTypes
 from .db.base import get_db, init_database
 from .db.services import ArtifactService, EventService, JobService, TaskService, WorkflowService
+from .db.audit_service import AuditService
 from .schemas.task_v1 import (
     TaskCreateV1,
     TaskCreateLegacyV1,
@@ -306,13 +307,13 @@ async def create_event(
 
 
 # Task Management Endpoints (JCT V1 Task Spec)
-@app.post("/tasks/enqueue", status_code=201)
+@app.post("/tasks/enqueue")
 async def enqueue_task(
     task_spec: TaskCreateV1 | TaskCreateLegacyV1,
-    create_cwom: bool = False,
+    create_cwom: bool = True,
     x_trace_id: Optional[str] = Header(None, alias="X-Trace-Id"),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+):
     """
     Enqueue a task for execution.
 
@@ -324,21 +325,27 @@ async def enqueue_task(
     - Otherwise, a new UUIDv4 trace_id is generated
     - trace_id is included in response JSON and stored in DB
 
+    Idempotency:
+    - If idempotency_key is provided and matches an existing task, returns 409 Conflict
+      with the existing task details.
+
     Flow:
     1. Generate or accept trace_id
     2. Schema validation (handled by Pydantic/FastAPI)
     3. Policy evaluation (governance + normalization)
     4. Persist normalized task with status="queued" and trace_id
-    5. Optionally create CWOM objects (if create_cwom=True)
-    6. Return task_id, trace_id, and status
+    5. Create CWOM objects (default: True) - atomic with task creation
+    6. Return task_id, trace_id, and status (201 Created or 409 Conflict)
 
     Args:
         task_spec: The task specification
-        create_cwom: If True, also create corresponding CWOM objects (Issue, ContextPacket, etc.)
+        create_cwom: Create corresponding CWOM objects (default: True)
         x_trace_id: Optional trace ID from caller (X-Trace-Id header)
 
     For v0 spine: /tasks/enqueue → DB row → Worker → Trace folder
     """
+    from fastapi.responses import JSONResponse
+
     # Step 0: Generate or accept trace_id (Sprint-0)
     trace_id = x_trace_id or str(uuid.uuid4())
     logger.info("task_enqueue_start", trace_id=trace_id)
@@ -360,20 +367,61 @@ async def enqueue_task(
             detail=e.to_dict(),
         )
 
-    # Step 2: Persist the normalized task with trace_id
+    # Step 2: Persist the normalized task with trace_id (atomic with CWOM)
     try:
         task_service = TaskService(db)
-        db_task = task_service.create_task(normalized_task, trace_id=trace_id)
+        create_result = task_service.create_task(normalized_task, trace_id=trace_id)
+        db_task = create_result.task
+
+        # Check for idempotency hit - return 409 Conflict with existing task
+        if not create_result.created:
+            logger.info(
+                "idempotency_hit",
+                trace_id=trace_id,
+                task_id=str(db_task.id),
+                idempotency_key=normalized_task.idempotency_key,
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "conflict",
+                    "task_id": str(db_task.id),
+                    "trace_id": db_task.trace_id,
+                    "message": "Task with this idempotency_key already exists",
+                    "task": db_task.to_dict(),
+                },
+            )
 
         logger.info("task_created", trace_id=trace_id, task_id=str(db_task.id))
 
-        # For v0 spine, we create the DB row and immediately mark it as queued
-        # Later: actual worker orchestration will be implemented
-        task_service.update_task_status(str(db_task.id), "queued")
+        # Audit log: record task creation
+        audit_service = AuditService(db)
+        audit_service.log_create(
+            entity_kind="Task",
+            entity_id=str(db_task.id),
+            after=db_task.to_dict(),
+            actor_kind=normalized_task.requested_by.kind,
+            actor_id=normalized_task.requested_by.id,
+            note="Task created via /tasks/enqueue",
+            trace_id=trace_id,
+        )
 
+        # For v0 spine, we create the DB row and immediately mark it as queued
+        task_service.update_task_status(str(db_task.id), "queued")
         logger.info("task_queued", trace_id=trace_id, task_id=str(db_task.id))
 
-        # Step 3: Optionally create CWOM objects
+        # Audit log: record status change to queued
+        audit_service.log_status_change(
+            entity_kind="Task",
+            entity_id=str(db_task.id),
+            old_status="pending",
+            new_status="queued",
+            actor_kind="system",
+            actor_id="task-enqueue",
+            trace_id=trace_id,
+        )
+
+        # Step 3: Create CWOM objects (atomic - rollback task if CWOM fails)
         cwom_objects = None
         if create_cwom:
             try:
@@ -396,14 +444,18 @@ async def enqueue_task(
                     cwom=cwom_objects,
                 )
             except Exception as e:
-                logger.warning(
-                    "cwom_creation_failed",
+                # Atomic: rollback task creation if CWOM fails
+                logger.error(
+                    "cwom_creation_failed_rollback",
                     trace_id=trace_id,
                     task_id=str(db_task.id),
                     error=str(e),
                 )
-                # Don't fail the task creation, just log the warning
-                cwom_objects = {"error": str(e)}
+                db.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to create CWOM objects (task rolled back): {str(e)}",
+                )
 
         response = {
             "status": "success",
@@ -417,8 +469,10 @@ async def enqueue_task(
             response["cwom"] = cwom_objects
 
         logger.info("task_enqueue_complete", trace_id=trace_id, task_id=str(db_task.id))
-        return response
+        return JSONResponse(status_code=201, content=response)
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error("task_enqueue_error", trace_id=trace_id, error=str(e))
         raise HTTPException(status_code=400, detail=f"Invalid task data: {str(e)}")

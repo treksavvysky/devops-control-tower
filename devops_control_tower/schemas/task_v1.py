@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, constr, conint, model_validator, ConfigDict
 
 # Reuse your existing RequestedBy and Constraints classes as-is.
@@ -79,6 +79,16 @@ class TaskCreateLegacyV1(BaseModel):
     # Legacy alias (deprecated, will be removed in V2)
     payload: Optional[Dict[str, Any]] = None
 
+    # Acceptance and evidence (V1.1 additions)
+    acceptance_criteria: List[str] = Field(
+        default_factory=list,
+        description="Structured criteria that define task completion"
+    )
+    evidence_requirements: List[str] = Field(
+        default_factory=list,
+        description="Required artifacts/evidence to prove completion"
+    )
+
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -123,6 +133,14 @@ class TaskCreateLegacyV1(BaseModel):
                     "allow_secrets": False,
                 },
                 "inputs": {},
+                "acceptance_criteria": [
+                    "Endpoint returns 200 with JSON body",
+                    "pytest passes with >80% coverage"
+                ],
+                "evidence_requirements": [
+                    "test_healthz.py output",
+                    "coverage report"
+                ],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }
@@ -152,6 +170,17 @@ class TaskCreateV1(BaseModel):
     constraints: Constraints = Field(default_factory=Constraints)
 
     inputs: Dict[str, Any] = Field(default_factory=dict)
+
+    # Acceptance and evidence (V1.1 additions)
+    acceptance_criteria: List[str] = Field(
+        default_factory=list,
+        description="Structured criteria that define task completion"
+    )
+    evidence_requirements: List[str] = Field(
+        default_factory=list,
+        description="Required artifacts/evidence to prove completion"
+    )
+
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     class Config:
@@ -170,6 +199,14 @@ class TaskCreateV1(BaseModel):
                     "allow_secrets": False,
                 },
                 "inputs": {},
+                "acceptance_criteria": [
+                    "Endpoint returns 200 with JSON body",
+                    "pytest passes with >80% coverage"
+                ],
+                "evidence_requirements": [
+                    "test_healthz.py output",
+                    "coverage report"
+                ],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }

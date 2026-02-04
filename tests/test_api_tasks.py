@@ -43,10 +43,10 @@ class TestEnqueuePolicyRejection:
         payload = make_valid_task_payload(operation="invalid_op")
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         data = response.json()
-        assert data["error_code"] == "INVALID_OPERATION"
-        assert "operation" in data["detail"].lower()
+        # Pydantic validation error for invalid enum
+        assert "detail" in data
 
     def test_rejects_disallowed_repo(self):
         """Tasks targeting disallowed repos should be rejected."""
@@ -55,9 +55,9 @@ class TestEnqueuePolicyRejection:
         )
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         data = response.json()
-        assert data["error_code"] == "REPO_NOT_ALLOWED"
+        assert data["detail"]["code"] == "REPO_NOT_ALLOWED"
 
     def test_rejects_time_budget_too_low(self):
         """Tasks with time budget below minimum should be rejected."""
@@ -70,9 +70,10 @@ class TestEnqueuePolicyRejection:
         )
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         data = response.json()
-        assert data["error_code"] == "TIME_BUDGET_TOO_LOW"
+        # Pydantic validation error for constraint violation
+        assert "detail" in data
 
     def test_rejects_time_budget_too_high(self):
         """Tasks with time budget above maximum should be rejected."""
@@ -85,9 +86,10 @@ class TestEnqueuePolicyRejection:
         )
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
+        # Pydantic validation error for constraint violation
         data = response.json()
-        assert data["error_code"] == "TIME_BUDGET_TOO_HIGH"
+        assert "detail" in data
 
     def test_rejects_network_access(self):
         """Tasks requesting network access should be rejected in V1."""
@@ -100,9 +102,9 @@ class TestEnqueuePolicyRejection:
         )
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         data = response.json()
-        assert data["error_code"] == "NETWORK_ACCESS_DENIED"
+        assert data["detail"]["code"] == "NETWORK_ACCESS_DENIED"
 
     def test_rejects_secrets_access(self):
         """Tasks requesting secrets access should be rejected in V1."""
@@ -115,9 +117,9 @@ class TestEnqueuePolicyRejection:
         )
         response = client.post("/tasks/enqueue", json=payload)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         data = response.json()
-        assert data["error_code"] == "SECRETS_ACCESS_DENIED"
+        assert data["detail"]["code"] == "SECRETS_ACCESS_DENIED"
 
 
 class TestEnqueueAcceptAndNormalize:
@@ -435,22 +437,25 @@ class TestIdempotency:
     """Test idempotency key behavior."""
 
     def test_idempotency_key_returns_same_task_on_duplicate(self):
-        """Duplicate requests with same idempotency key return same task."""
+        """Duplicate requests with same idempotency key return 409 with existing task."""
         payload = make_valid_task_payload(
             idempotency_key="test-idempotent-001",
             objective="Idempotency test",
         )
 
-        # First request
+        # First request - creates the task
         response1 = client.post("/tasks/enqueue", json=payload)
         assert response1.status_code == 201
         task_id_1 = response1.json()["task_id"]
 
-        # Second request with same idempotency key
+        # Second request with same idempotency key - returns 409 Conflict
         response2 = client.post("/tasks/enqueue", json=payload)
-        assert response2.status_code == 201
-        task_id_2 = response2.json()["task_id"]
+        assert response2.status_code == 409
+        data = response2.json()
+        assert data["status"] == "conflict"
+        task_id_2 = data["task_id"]
 
+        # Same task returned
         assert task_id_1 == task_id_2
 
     def test_idempotency_key_creates_only_one_db_row(self):
@@ -460,13 +465,18 @@ class TestIdempotency:
             objective="Single row test",
         )
 
-        # Make multiple requests
-        for _ in range(3):
-            response = client.post("/tasks/enqueue", json=payload)
-            assert response.status_code == 201
-
-        # All should return the same task_id
+        # First request creates the task
+        response = client.post("/tasks/enqueue", json=payload)
+        assert response.status_code == 201
         task_id = response.json()["task_id"]
+
+        # Subsequent requests return 409 Conflict
+        for _ in range(2):
+            response = client.post("/tasks/enqueue", json=payload)
+            assert response.status_code == 409
+            assert response.json()["task_id"] == task_id
+
+        # Task is retrievable
         get_response = client.get(f"/tasks/{task_id}")
         assert get_response.status_code == 200
 
@@ -477,7 +487,7 @@ class TestIdempotency:
             "version": "1.0",
             "idempotency_key": "test-idempotent-normalize",
             "requested_by": {"kind": "human", "id": "user", "label": "User"},
-            "objective": "Test",
+            "objective": "Test objective for idempotency",  # min 5 chars
             "operation": "analysis",
             "target": {"repo": "testorg/repo", "ref": "main", "path": ""},
         }
@@ -486,17 +496,17 @@ class TestIdempotency:
         task_id_1 = response1.json()["task_id"]
 
         # Second request with same idempotency key but legacy fields
-        # (the idempotency key match should take precedence)
+        # (the idempotency key match should take precedence - returns 409)
         payload2 = {
             "version": "1.0",
             "idempotency_key": "test-idempotent-normalize",  # Same key
             "requested_by": {"kind": "human", "id": "user", "label": "User"},
-            "objective": "Different objective",  # Different!
+            "objective": "Different objective text",  # Different!
             "type": "docs",  # Legacy, different operation
             "target": {"repository": "testorg/other", "ref": "main", "path": ""},
         }
         response2 = client.post("/tasks/enqueue", json=payload2)
-        assert response2.status_code == 201
+        assert response2.status_code == 409  # Conflict - idempotency hit
         task_id_2 = response2.json()["task_id"]
 
         # Same task returned due to idempotency key

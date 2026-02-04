@@ -24,7 +24,9 @@ from .primitives import (
     Constraints,
     ObjectKind,
     Ref,
+    RiskConstraint,
     Source,
+    TimeConstraint,
 )
 from .repo import RepoCreate
 from .issue import IssueCreate
@@ -144,19 +146,33 @@ def task_to_cwom(
     constraints_data = task_data.get("constraints", {})
     constraint_service = ConstraintSnapshotService(db)
 
+    # Build properly typed constraint objects
+    time_budget = constraints_data.get("time_budget_seconds", 900)
+    time_constraint = TimeConstraint(available_minutes=time_budget // 60) if time_budget else None
+
+    # Map allow_network/allow_secrets to risk tolerance
+    allow_network = constraints_data.get("allow_network", False)
+    allow_secrets = constraints_data.get("allow_secrets", False)
+    # Low tolerance = no network/secrets, high = both allowed
+    risk_tolerance = "high" if (allow_network and allow_secrets) else "medium" if (allow_network or allow_secrets) else "low"
+    risk_constraint = RiskConstraint(
+        tolerance=risk_tolerance,
+        notes=f"allow_network={allow_network}, allow_secrets={allow_secrets}",
+    )
+
     constraint_create = ConstraintSnapshotCreate(
         scope=ConstraintScope.RUN,
         owner=actor,
         constraints=Constraints(
-            time={"budget_seconds": constraints_data.get("time_budget_seconds", 900)},
-            risk={
-                "allow_network": constraints_data.get("allow_network", False),
-                "allow_secrets": constraints_data.get("allow_secrets", False),
-            },
+            time=time_constraint,
+            risk=risk_constraint,
         ),
         meta={
             "source": "jct_task",
             "idempotency_key": task_data.get("idempotency_key"),
+            "time_budget_seconds": time_budget,
+            "allow_network": allow_network,
+            "allow_secrets": allow_secrets,
         },
     )
     constraint_snapshot = constraint_service.create(constraint_create)
@@ -171,6 +187,14 @@ def task_to_cwom(
     objective = task_data.get("objective", "")
     title = objective.split("\n")[0][:200] if objective else "Untitled Task"
 
+    # Build acceptance criteria - use explicit criteria if provided, else use objective
+    acceptance_criteria = task_data.get("acceptance_criteria", [])
+    if not acceptance_criteria and objective:
+        acceptance_criteria = [objective]
+
+    # Build evidence requirements
+    evidence_requirements = task_data.get("evidence_requirements", [])
+
     issue_create = IssueCreate(
         repo=Ref(kind=ObjectKind.REPO, id=repo.id),
         title=title,
@@ -180,12 +204,13 @@ def task_to_cwom(
         status=Status.PLANNED,
         assignees=[actor],
         acceptance=Acceptance(
-            criteria=[objective] if objective else [],
+            criteria=acceptance_criteria,
         ),
         meta={
             "source": "jct_task",
             "idempotency_key": task_data.get("idempotency_key"),
             "task_metadata": task_data.get("metadata", {}),
+            "evidence_requirements": evidence_requirements,
         },
     )
     issue = issue_service.create(issue_create)
@@ -196,19 +221,14 @@ def task_to_cwom(
     # 4. Create ContextPacket
     context_service = ContextPacketService(db)
 
-    # Build inputs including target path info
+    # Task inputs go to meta, not inputs (ContextInputs only accepts documents/data_blobs/links)
     inputs_data = task_data.get("inputs", {})
-    context_inputs = {
-        "ref": repo_ref,
-        "path": repo_path,
-        **inputs_data,
-    }
 
     context_create = ContextPacketCreate(
         for_issue=Ref(kind=ObjectKind.ISSUE, id=issue.id),
         version="1.0",
         summary=f"Initial context from JCT task",
-        inputs=context_inputs,
+        # ContextInputs is for documents/blobs - leave empty, use meta for task inputs
         assumptions=[
             f"Target branch: {repo_ref}",
             f"Working path: {repo_path or '(root)'}",
@@ -218,6 +238,12 @@ def task_to_cwom(
         meta={
             "source": "jct_task",
             "idempotency_key": task_data.get("idempotency_key"),
+            "acceptance_criteria": acceptance_criteria,
+            "evidence_requirements": evidence_requirements,
+            # Store task target/inputs in meta for round-trip
+            "task_ref": repo_ref,
+            "task_path": repo_path,
+            "task_inputs": inputs_data,
         },
     )
     context_packet = context_service.create(context_create)
@@ -275,12 +301,12 @@ def issue_to_task(
         "path": "",
     }
 
-    # Override with context packet inputs if available
-    if context_packet and context_packet.inputs:
-        inputs = context_packet.inputs
-        if isinstance(inputs, dict):
-            target["ref"] = inputs.get("ref", target["ref"])
-            target["path"] = inputs.get("path", target["path"])
+    # Override with context packet meta if available (task inputs stored in meta)
+    if context_packet and context_packet.meta:
+        meta = context_packet.meta
+        if isinstance(meta, dict):
+            target["ref"] = meta.get("task_ref", target["ref"])
+            target["path"] = meta.get("task_path", target["path"])
 
     # Build constraints from constraint snapshot
     constraints = {
@@ -288,29 +314,50 @@ def issue_to_task(
         "allow_network": False,
         "allow_secrets": False,
     }
-    if constraint_snapshot and constraint_snapshot.constraints:
-        cs = constraint_snapshot.constraints
-        if isinstance(cs, dict):
-            if "time" in cs:
-                constraints["time_budget_seconds"] = cs["time"].get("budget_seconds", 900)
-            if "risk" in cs:
-                constraints["allow_network"] = cs["risk"].get("allow_network", False)
-                constraints["allow_secrets"] = cs["risk"].get("allow_secrets", False)
+    if constraint_snapshot:
+        # First check meta for original task values (most accurate)
+        if constraint_snapshot.meta and isinstance(constraint_snapshot.meta, dict):
+            meta = constraint_snapshot.meta
+            if "time_budget_seconds" in meta:
+                constraints["time_budget_seconds"] = meta["time_budget_seconds"]
+            if "allow_network" in meta:
+                constraints["allow_network"] = meta["allow_network"]
+            if "allow_secrets" in meta:
+                constraints["allow_secrets"] = meta["allow_secrets"]
+        # Fallback to constraints object if meta not available
+        elif constraint_snapshot.constraints and isinstance(constraint_snapshot.constraints, dict):
+            cs = constraint_snapshot.constraints
+            if "time" in cs and cs["time"]:
+                available_minutes = cs["time"].get("available_minutes", 15)
+                constraints["time_budget_seconds"] = available_minutes * 60
+            if "risk" in cs and cs["risk"]:
+                tolerance = cs["risk"].get("tolerance", "low")
+                constraints["allow_network"] = tolerance in ("medium", "high")
+                constraints["allow_secrets"] = tolerance == "high"
 
-    # Build inputs from context packet (excluding ref/path which go to target)
+    # Build inputs from context packet meta (task_inputs stored there)
     inputs = {}
-    if context_packet and context_packet.inputs:
-        cp_inputs = context_packet.inputs
-        if isinstance(cp_inputs, dict):
-            inputs = {k: v for k, v in cp_inputs.items() if k not in ("ref", "path")}
+    if context_packet and context_packet.meta:
+        cp_meta = context_packet.meta
+        if isinstance(cp_meta, dict):
+            inputs = cp_meta.get("task_inputs", {})
 
     # Build metadata from issue meta
     metadata = {}
+    acceptance_criteria = []
+    evidence_requirements = []
     if issue.meta:
         meta = issue.meta
         if isinstance(meta, dict):
             # Extract task_metadata if it was stored there
             metadata = meta.get("task_metadata", {})
+            evidence_requirements = meta.get("evidence_requirements", [])
+
+    # Extract acceptance criteria from issue.acceptance
+    if issue.acceptance:
+        acceptance_data = issue.acceptance
+        if isinstance(acceptance_data, dict):
+            acceptance_criteria = acceptance_data.get("criteria", [])
 
     return {
         "version": "1.0",
@@ -321,5 +368,7 @@ def issue_to_task(
         "target": target,
         "constraints": constraints,
         "inputs": inputs,
+        "acceptance_criteria": acceptance_criteria,
+        "evidence_requirements": evidence_requirements,
         "metadata": metadata,
     }

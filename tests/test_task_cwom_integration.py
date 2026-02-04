@@ -17,6 +17,7 @@ from devops_control_tower.schemas.task_v1 import (
     TaskCreateV1,
     TaskCreateLegacyV1,
     RequestedBy,
+    Target,
     TargetV1,
     Constraints,
 )
@@ -67,7 +68,7 @@ def sample_legacy_task():
         ),
         objective="Update documentation for API endpoints",
         type="docs",  # Legacy field
-        target=TargetV1(
+        target=Target(
             repo="testorg/docs-repo",
             ref="develop",
             path="docs/api",
@@ -131,27 +132,28 @@ class TestTaskToCWOM:
         assert result.issue.status == Status.PLANNED.value
 
     def test_task_to_cwom_creates_context_packet(self, db_session, sample_task_v1):
-        """task_to_cwom creates a ContextPacket with inputs."""
+        """task_to_cwom creates a ContextPacket with task data in meta."""
         result = task_to_cwom(sample_task_v1, db_session)
 
         assert result.context_packet is not None
-        assert result.context_packet.inputs is not None
-        # Check that inputs include ref, path, and original inputs
-        inputs = result.context_packet.inputs
-        assert inputs.get("ref") == "main"
-        assert inputs.get("path") == "src/api"
-        assert inputs.get("priority") == "high"
+        assert result.context_packet.meta is not None
+        # Task inputs are stored in meta (ContextInputs only accepts documents/blobs/links)
+        meta = result.context_packet.meta
+        assert meta.get("task_ref") == "main"
+        assert meta.get("task_path") == "src/api"
+        assert meta.get("task_inputs", {}).get("priority") == "high"
 
     def test_task_to_cwom_creates_constraint_snapshot(self, db_session, sample_task_v1):
         """task_to_cwom creates a ConstraintSnapshot from constraints."""
         result = task_to_cwom(sample_task_v1, db_session)
 
         assert result.constraint_snapshot is not None
-        constraints = result.constraint_snapshot.constraints
-        assert constraints is not None
-        assert constraints.get("time", {}).get("budget_seconds") == 600
-        assert constraints.get("risk", {}).get("allow_network") is False
-        assert constraints.get("risk", {}).get("allow_secrets") is False
+        # Original task constraints are stored in meta for round-trip fidelity
+        meta = result.constraint_snapshot.meta
+        assert meta is not None
+        assert meta.get("time_budget_seconds") == 600
+        assert meta.get("allow_network") is False
+        assert meta.get("allow_secrets") is False
 
     def test_task_to_cwom_legacy_task(self, db_session, sample_legacy_task):
         """task_to_cwom handles legacy tasks with type/payload aliases."""
@@ -219,7 +221,7 @@ class TestEnqueueWithCWOM:
             "objective": "Test task without CWOM creation",
             "operation": "code_change",
             "target": {
-                "repo": "allowed/test-repo",
+                "repo": "testorg/test-repo",
                 "ref": "main",
                 "path": "",
             },
@@ -232,17 +234,13 @@ class TestEnqueueWithCWOM:
             "metadata": {},
         }
 
-        # Set allowed repo prefix for policy
-        import os
-        os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "allowed/"
-
-        response = client.post("/tasks/enqueue", json=task_data)
+        response = client.post("/tasks/enqueue?create_cwom=false", json=task_data)
 
         assert response.status_code == 201
         data = response.json()
         assert data["status"] == "success"
         assert "task_id" in data
-        # Should NOT have CWOM objects
+        # Should NOT have CWOM objects when create_cwom=false
         assert "cwom" not in data
 
     def test_enqueue_with_cwom(self, client):
@@ -258,7 +256,7 @@ class TestEnqueueWithCWOM:
             "objective": "Test task with CWOM creation",
             "operation": "code_change",
             "target": {
-                "repo": "allowed/cwom-test-repo",
+                "repo": "testorg/cwom-test-repo",
                 "ref": "main",
                 "path": "",
             },
@@ -271,17 +269,13 @@ class TestEnqueueWithCWOM:
             "metadata": {},
         }
 
-        # Set allowed repo prefix for policy
-        import os
-        os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "allowed/"
-
         response = client.post("/tasks/enqueue?create_cwom=true", json=task_data)
 
         assert response.status_code == 201
         data = response.json()
         assert data["status"] == "success"
         assert "task_id" in data
-        # Should have CWOM objects
+        # Should have CWOM objects (create_cwom=true)
         assert "cwom" in data
         assert "repo_id" in data["cwom"]
         assert "issue_id" in data["cwom"]
@@ -300,14 +294,11 @@ class TestEnqueueWithCWOM:
             "objective": "Test task-CWOM linking",
             "operation": "analysis",
             "target": {
-                "repo": "allowed/link-test",
+                "repo": "testorg/link-test",
                 "ref": "main",
                 "path": "",
             },
         }
-
-        import os
-        os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "allowed/"
 
         response = client.post("/tasks/enqueue?create_cwom=true", json=task_data)
 
