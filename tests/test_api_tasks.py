@@ -284,7 +284,7 @@ class TestEnqueuePersistence:
         assert get_response.status_code == 200
 
         data = get_response.json()
-        assert data["id"] == task_id
+        assert data["task_id"] == task_id
         assert data["status"] == "queued"
         assert data["operation"] == "code_change"
 
@@ -576,7 +576,7 @@ class TestGetTaskById:
         assert get_response.status_code == 200
 
         data = get_response.json()
-        assert data["id"] == task_id
+        assert data["task_id"] == task_id
         assert data["status"] == "queued"
 
     def test_get_task_returns_canonical_fields(self):
@@ -597,7 +597,7 @@ class TestGetTaskById:
         data = get_response.json()
 
         # Verify all canonical fields are present
-        assert "id" in data
+        assert "task_id" in data
         assert "version" in data
         assert "idempotency_key" in data
         assert "requested_by" in data

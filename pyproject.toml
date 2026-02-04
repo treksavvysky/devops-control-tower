@@ -13,7 +13,7 @@ keywords = ["devops", "ai", "orchestration", "automation", "infrastructure"]
 packages = [{ include = "devops_control_tower" }]
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.10"
 fastapi = "^0.109"
 uvicorn = {version = "^0.24", extras = ["standard"]}
 sqlalchemy = "^2.0"
@@ -75,7 +75,7 @@ serve = "devops_control_tower.main:app"
 
 [tool.black]
 line-length = 88
-target-version = ['py312']
+target-version = ['py310']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -107,7 +107,7 @@ extend-ignore = ["E203", "W503"]
 exclude = [".git", "__pycache__", "build", "dist", ".venv", ".eggs"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = true

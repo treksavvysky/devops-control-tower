@@ -28,56 +28,58 @@ depends_on = None
 
 def upgrade() -> None:
     # ==========================================================================
-    # Create CWOM Enums
+    # Create CWOM Enums (PostgreSQL only - SQLite uses String columns)
     # ==========================================================================
-    op.execute(
-        """CREATE TYPE cwom_object_kind AS ENUM (
-            'Repo', 'Issue', 'ContextPacket', 'Run', 'Artifact',
-            'ConstraintSnapshot', 'DoctrineRef'
-        )"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_status AS ENUM (
-            'planned', 'ready', 'running', 'blocked', 'done', 'failed', 'canceled'
-        )"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_issue_type AS ENUM (
-            'feature', 'bug', 'chore', 'research', 'ops', 'doc', 'incident'
-        )"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_priority AS ENUM ('P0', 'P1', 'P2', 'P3', 'P4')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_run_mode AS ENUM ('human', 'agent', 'hybrid', 'system')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_artifact_type AS ENUM (
-            'code_patch', 'commit', 'pr', 'build', 'container_image',
-            'doc', 'report', 'dataset', 'log', 'trace', 'binary', 'link'
-        )"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_verification_status AS ENUM ('unverified', 'passed', 'failed')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_doctrine_type AS ENUM (
-            'principle', 'policy', 'procedure', 'heuristic', 'pattern'
-        )"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_doctrine_priority AS ENUM ('must', 'should', 'may')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_visibility AS ENUM ('public', 'private', 'internal')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_actor_kind AS ENUM ('human', 'agent', 'system')"""
-    )
-    op.execute(
-        """CREATE TYPE cwom_constraint_scope AS ENUM ('personal', 'repo', 'org', 'system', 'run')"""
-    )
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            """CREATE TYPE cwom_object_kind AS ENUM (
+                'Repo', 'Issue', 'ContextPacket', 'Run', 'Artifact',
+                'ConstraintSnapshot', 'DoctrineRef'
+            )"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_status AS ENUM (
+                'planned', 'ready', 'running', 'blocked', 'done', 'failed', 'canceled'
+            )"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_issue_type AS ENUM (
+                'feature', 'bug', 'chore', 'research', 'ops', 'doc', 'incident'
+            )"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_priority AS ENUM ('P0', 'P1', 'P2', 'P3', 'P4')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_run_mode AS ENUM ('human', 'agent', 'hybrid', 'system')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_artifact_type AS ENUM (
+                'code_patch', 'commit', 'pr', 'build', 'container_image',
+                'doc', 'report', 'dataset', 'log', 'trace', 'binary', 'link'
+            )"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_verification_status AS ENUM ('unverified', 'passed', 'failed')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_doctrine_type AS ENUM (
+                'principle', 'policy', 'procedure', 'heuristic', 'pattern'
+            )"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_doctrine_priority AS ENUM ('must', 'should', 'may')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_visibility AS ENUM ('public', 'private', 'internal')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_actor_kind AS ENUM ('human', 'agent', 'system')"""
+        )
+        op.execute(
+            """CREATE TYPE cwom_constraint_scope AS ENUM ('personal', 'repo', 'org', 'system', 'run')"""
+        )
 
     # ==========================================================================
     # Create CWOM Repos Table
