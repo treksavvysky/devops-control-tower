@@ -152,6 +152,7 @@ Key test files:
 - `tests/test_policy.py` - Policy validation
 - `tests/test_contract_snapshot.py` - Schema contract (prevents breaking changes)
 - `tests/test_cwom_*.py` - CWOM schemas, DB, API, integration
+- `tests/test_cwom_crud_integration.py` - Phase 3: DB round-trips, relationships, join table queries, causality chain (55 tests)
 - `tests/test_audit_log.py` - AuditLog model and service
 
 Integration test scripts:
@@ -212,6 +213,7 @@ The core operating model: **Turn fuzzy intent into audited, deterministic work.*
 - **CWOM v0.1** (Complete): 8 object types with causality chain
 - **AuditLog** (Complete): Event sourcing for all CWOM operations
 - **v0 Pipeline** (Steps 1-5 Complete): Intake → Gate → Work → Prove → Review
+- **Phase 3 CRUD Integration Tests** (Complete): 55 tests covering DB round-trips, relationships, join table queries, full causality chain, immutability, status transitions, audit trails
 
 Progress docs:
 - `STAGE-01-SUMMARY.md`

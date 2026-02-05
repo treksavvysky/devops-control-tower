@@ -1,7 +1,7 @@
 # CWOM v0.1 Completion Roadmap
 
 **Date**: 2026-01-26
-**Status**: Phase 1-2 Complete, Phase 3-4 Pending
+**Status**: Phase 1-3 Complete, Phase 4 Pending
 
 ---
 
@@ -15,7 +15,7 @@ Based on the CWOM-DELIVERABLE-CHECKLIST.md requirements:
 | **Join tables exist** | ✅ Present | 6 join tables: issue↔context, issue↔doctrine, issue↔constraint, run↔context, run↔doctrine, context↔doctrine |
 | **Migrations apply cleanly** | ✅ Fixed | Chain: `a1b2c3d4e5f6 → b2f6a732d137 → c3e8f9a21b4d → d4a9b8c2e5f6 → e5f6a7b8c9d0` |
 | **Downgrade sanity works** | 🟡 Needs testing | Downgrade functions exist with dialect checks, untested at runtime |
-| **CRUD tests cover linkage** | 🟡 Partial | Tests verify structure but not actual DB round-trip with relationships |
+| **CRUD tests cover linkage** | ✅ Complete | Phase 3: 55 integration tests in `test_cwom_crud_integration.py` (DB round-trips, relationships, join tables, causality chain) |
 | **AuditLog exists** | ✅ Complete | Phase 2 implemented |
 
 ---
@@ -173,38 +173,33 @@ Tests for:
 
 ---
 
-### Phase 3: Complete CRUD Tests (Priority: MEDIUM)
+### Phase 3: Complete CRUD Tests (Priority: MEDIUM) ✅ COMPLETE
 
-#### 3.1 Add DB Round-Trip Tests
+**Completed**: 2026-02-05
 
-**File**: `tests/test_cwom_crud_integration.py`
+**File**: `tests/test_cwom_crud_integration.py` — 55 tests across 8 classes
 
-Test scenarios:
-1. Create Repo → Create Issue under Repo → Query Issue by repo_id
-2. Create Issue → Create ContextPacket for Issue → Verify immutability (update blocked)
-3. Create Issue → Create ConstraintSnapshot → Link via join table → Query issues by constraint
-4. Create DoctrineRef → Link to Issue → Query issues by doctrine
-5. Create Run for Issue → Update status ready→running→done → Create Artifact → Query artifacts by run_id and issue_id
+#### 3.1 DB Round-Trip Tests ✅
+- `TestRepoRoundTrip` (4 tests): create/get/list/to_dict via RepoService
+- `TestIssueRoundTrip` (5 tests): create/get/list, repo relationship loading
 
-#### 3.2 Add Join Table Query Tests
+#### 3.2 Relationship Loading Tests ✅
+- `TestRelationshipLoading` (12 tests): All 6 join tables, FK relationships, backrefs, auto-linking via RunService and ContextPacketService
 
-Test that relationships are properly queryable:
-```python
-def test_find_runs_by_doctrine(db_session):
-    """Find all runs governed by a specific doctrine."""
-    doctrine = create_doctrine(...)
-    run1 = create_run(...)
-    run1.doctrine_refs_rel.append(doctrine)
-    db_session.commit()
+#### 3.3 Join Table Query Tests ✅
+- `TestJoinTableQueries` (7 tests): Query through join tables (issues by doctrine, runs by context packet, etc.), service list/filter methods, latest context packet
 
-    # Query via join table
-    runs = db_session.query(CWOMRunModel)\
-        .join(run_doctrine_refs)\
-        .filter(run_doctrine_refs.c.doctrine_ref_id == doctrine.id)\
-        .all()
+#### 3.4 Full Causality Chain Tests ✅
+- `TestFullCausalityChain` (5 tests): Complete 9-object chain (Repo→Issue→CP+CS+DR→Run→Artifact→EP→Review), forward/backward traversal, to_dict refs, multiple runs
 
-    assert len(runs) == 1
-```
+#### 3.5 Immutability Tests ✅
+- `TestImmutability` (4 tests): CP/CS have no update methods, versioning, data unchanged after reread
+
+#### 3.6 Status Transition Tests ✅
+- `TestStatusTransitions` (7 tests): Issue/Run status flow, telemetry updates, review-driven transitions (approved→done, rejected→failed)
+
+#### 3.7 Audit Trail and Edge Cases ✅
+- `TestAuditTrailAndEdgeCases` (11 tests): Audit logging for create/status_change/link, duplicate link handling, missing refs, unique constraints
 
 ---
 
@@ -307,10 +302,10 @@ Pass means all of this is true:
    - 🟡 Immutables enforced (API level only, no DB constraints)
 
 4. **CRUD tests pass**:
-   - 🟡 create/read/update where allowed
-   - 🟡 ContextPacket + ConstraintSnapshot: update blocked
-   - ⬜ Run emits Artifact and links correctly (needs integration test)
-   - ⬜ Query via join tables works
+   - ✅ create/read/update where allowed (Phase 3: TestRepoRoundTrip, TestIssueRoundTrip, TestStatusTransitions)
+   - ✅ ContextPacket + ConstraintSnapshot: update blocked (Phase 3: TestImmutability)
+   - ✅ Run emits Artifact and links correctly (Phase 3: TestRelationshipLoading, TestFullCausalityChain)
+   - ✅ Query via join tables works (Phase 3: TestJoinTableQueries)
 
 5. **AuditLog**:
    - ✅ Model exists (`db/audit_models.py`)
@@ -330,8 +325,10 @@ Pass means all of this is true:
 - ✅ `devops_control_tower/cwom/services.py` - Updated with audit logging
 - ✅ `tests/test_audit_log.py` - Created
 
-### Phase 3-4 Files (Pending)
-- `tests/test_cwom_crud_integration.py`
+### Phase 3 Files (Complete)
+- ✅ `tests/test_cwom_crud_integration.py` - Created (55 tests, 8 classes)
+
+### Phase 4 Files (Pending)
 - `scripts/verify_db_fresh.sh`
 - `.github/workflows/*.yml` - Add fresh DB verification step
 
@@ -342,5 +339,5 @@ Pass means all of this is true:
 1. ~~**Immediate**: Run `alembic upgrade head` on a fresh SQLite DB to verify current state~~ ✅
 2. ~~**Phase 1**: Fix trace_id model mismatch~~ ✅ Complete
 3. ~~**Phase 2**: Implement AuditLog~~ ✅ Complete (2026-01-26)
-4. **Phase 3**: Add integration tests with real DB (NEXT)
-5. **Phase 4**: CI verification
+4. ~~**Phase 3**: Add integration tests with real DB~~ ✅ Complete (2026-02-05)
+5. **Phase 4**: CI verification (NEXT)
