@@ -18,6 +18,7 @@ from ..db.cwom_models import (
     CWOMConstraintSnapshotModel,
     CWOMContextPacketModel,
     CWOMDoctrineRefModel,
+    CWOMEvidencePackModel,
     CWOMIssueModel,
     CWOMRepoModel,
     CWOMRunModel,
@@ -931,6 +932,86 @@ class ArtifactService:
 
         return (
             query.order_by(desc(CWOMArtifactModel.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+
+class EvidencePackService:
+    """Service for EvidencePack CRUD operations."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.audit = AuditService(db)
+
+    def get(self, evidence_pack_id: str) -> Optional[CWOMEvidencePackModel]:
+        """Get an EvidencePack by ID."""
+        return (
+            self.db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.id == evidence_pack_id)
+            .first()
+        )
+
+    def get_for_run(self, run_id: str) -> Optional[CWOMEvidencePackModel]:
+        """Get the EvidencePack for a Run."""
+        return (
+            self.db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.for_run_id == run_id)
+            .first()
+        )
+
+    def list(
+        self,
+        run_id: Optional[str] = None,
+        issue_id: Optional[str] = None,
+        verdict: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[CWOMEvidencePackModel]:
+        """List EvidencePacks with optional filtering."""
+        query = self.db.query(CWOMEvidencePackModel)
+
+        if run_id:
+            query = query.filter(CWOMEvidencePackModel.for_run_id == run_id)
+        if issue_id:
+            query = query.filter(CWOMEvidencePackModel.for_issue_id == issue_id)
+        if verdict:
+            query = query.filter(CWOMEvidencePackModel.verdict == verdict)
+
+        return (
+            query.order_by(desc(CWOMEvidencePackModel.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def list_for_run(self, run_id: str) -> List[CWOMEvidencePackModel]:
+        """List all EvidencePacks for a Run (usually just one)."""
+        return (
+            self.db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.for_run_id == run_id)
+            .order_by(desc(CWOMEvidencePackModel.created_at))
+            .all()
+        )
+
+    def list_for_issue(
+        self,
+        issue_id: str,
+        verdict: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[CWOMEvidencePackModel]:
+        """List EvidencePacks for an Issue."""
+        query = self.db.query(CWOMEvidencePackModel).filter(
+            CWOMEvidencePackModel.for_issue_id == issue_id
+        )
+
+        if verdict:
+            query = query.filter(CWOMEvidencePackModel.verdict == verdict)
+
+        return (
+            query.order_by(desc(CWOMEvidencePackModel.created_at))
             .offset(offset)
             .limit(limit)
             .all()

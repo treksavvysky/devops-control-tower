@@ -11,9 +11,10 @@ objects. It defines the minimal, stable schema for:
 - DoctrineRef: Governing rules for "how we decide / how we work"
 - Run: Execution attempt (agent/human/CI doing work)
 - Artifact: Output of a Run (PR, commit, report, build) with verification
+- EvidencePack: Proof that a Run's outputs meet acceptance criteria
 
 Causality Chain:
-    Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
+    Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack
 
 Spec: docs/cwom/cwom-spec-v0.1.md
 """
@@ -25,6 +26,7 @@ from .enums import (
     CheckStatus,
     Connectivity,
     ConstraintScope,
+    CriterionStatus,
     DoctrinePriority,
     DoctrineType,
     FailureCategory,
@@ -34,6 +36,7 @@ from .enums import (
     RiskTolerance,
     RunMode,
     Status,
+    Verdict,
     VerificationStatus,
     Visibility,
 )
@@ -79,6 +82,7 @@ from .constraint_snapshot import ConstraintSnapshot, ConstraintSnapshotCreate
 from .doctrine_ref import DoctrineRef, DoctrineRefCreate
 from .run import Run, RunCreate, RunUpdate
 from .artifact import Artifact, ArtifactCreate
+from .evidence_pack import EvidencePack, EvidencePackCreate, CriterionResult, EvidenceItem
 
 __version__ = "0.1"
 
@@ -148,4 +152,10 @@ __all__ = [
     "RunUpdate",
     "Artifact",
     "ArtifactCreate",
+    "EvidencePack",
+    "EvidencePackCreate",
+    "CriterionResult",
+    "EvidenceItem",
+    "Verdict",
+    "CriterionStatus",
 ]

@@ -23,6 +23,7 @@ from .executor import (
     get_executor,
 )
 from .loop import WorkerLoop, run_worker
+from .prover import Prover, ProofResult
 from .storage import TraceStore, FileTraceStore, create_trace_store, get_trace_uri
 
 # Legacy Sprint-0 (kept for backward compatibility)
@@ -39,6 +40,9 @@ __all__ = [
     "ExecutionResult",
     "StubExecutor",
     "get_executor",
+    # v0 Prover
+    "Prover",
+    "ProofResult",
     # v0 Storage
     "TraceStore",
     "FileTraceStore",

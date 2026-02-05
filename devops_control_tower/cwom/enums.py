@@ -18,6 +18,7 @@ class ObjectKind(str, Enum):
     ARTIFACT = "Artifact"
     CONSTRAINT_SNAPSHOT = "ConstraintSnapshot"
     DOCTRINE_REF = "DoctrineRef"
+    EVIDENCE_PACK = "EvidencePack"
 
 
 class Status(str, Enum):
@@ -165,3 +166,21 @@ class CheckStatus(str, Enum):
     PASSED = "passed"
     FAILED = "failed"
     UNVERIFIED = "unverified"
+
+
+class Verdict(str, Enum):
+    """Evidence pack verdict (proof outcome)."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    PARTIAL = "partial"
+    PENDING = "pending"
+
+
+class CriterionStatus(str, Enum):
+    """Status of individual acceptance criterion evaluation."""
+
+    SATISFIED = "satisfied"
+    NOT_SATISFIED = "not_satisfied"
+    UNVERIFIED = "unverified"  # v0: can't verify without LLM
+    SKIPPED = "skipped"

@@ -16,6 +16,7 @@ from .services import (
     ConstraintSnapshotService,
     ContextPacketService,
     DoctrineRefService,
+    EvidencePackService,
     ImmutabilityError,
     IssueService,
     RepoService,
@@ -574,3 +575,87 @@ async def list_artifacts_for_issue(
         offset=offset,
     )
     return [a.to_dict() for a in artifacts]
+
+
+# =============================================================================
+# EvidencePack Endpoints
+# =============================================================================
+
+
+@router.get("/evidence-packs/{evidence_pack_id}")
+async def get_evidence_pack(
+    evidence_pack_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get an EvidencePack by ID."""
+    service = EvidencePackService(db)
+    evidence_pack = service.get(evidence_pack_id)
+
+    if not evidence_pack:
+        raise HTTPException(status_code=404, detail="EvidencePack not found")
+
+    return evidence_pack.to_dict()
+
+
+@router.get("/evidence-packs")
+async def list_evidence_packs(
+    run_id: Optional[str] = None,
+    issue_id: Optional[str] = None,
+    verdict: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List EvidencePacks with optional filtering."""
+    service = EvidencePackService(db)
+    evidence_packs = service.list(
+        run_id=run_id,
+        issue_id=issue_id,
+        verdict=verdict,
+        limit=limit,
+        offset=offset,
+    )
+    return [ep.to_dict() for ep in evidence_packs]
+
+
+@router.get("/runs/{run_id}/evidence-pack")
+async def get_evidence_pack_for_run(
+    run_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get the EvidencePack for a Run."""
+    # Verify run exists
+    run_service = RunService(db)
+    run = run_service.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    service = EvidencePackService(db)
+    evidence_pack = service.get_for_run(run_id)
+
+    if not evidence_pack:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No EvidencePack found for Run '{run_id}'"
+        )
+
+    return evidence_pack.to_dict()
+
+
+@router.get("/issues/{issue_id}/evidence-packs")
+async def list_evidence_packs_for_issue(
+    issue_id: str,
+    verdict: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List EvidencePacks for an Issue."""
+    service = EvidencePackService(db)
+    evidence_packs = service.list_for_issue(
+        issue_id,
+        verdict=verdict,
+        limit=limit,
+        offset=offset,
+    )
+    return [ep.to_dict() for ep in evidence_packs]

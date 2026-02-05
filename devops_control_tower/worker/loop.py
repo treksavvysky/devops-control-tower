@@ -36,6 +36,7 @@ from ..db.cwom_models import (
 from ..db.models import TaskModel
 from ..db.audit_service import AuditService
 from .executor import ExecutionContext, ExecutionResult, get_executor
+from .prover import Prover
 from .storage import create_trace_store, get_trace_uri
 
 logger = logging.getLogger(__name__)
@@ -499,6 +500,21 @@ class WorkerLoop:
                 actor_id=self.worker_id,
                 note=f"Execution {'completed' if result.success else 'failed'}",
                 trace_id=task.trace_id,
+            )
+
+            # Step 4: Prove - Create Evidence Pack
+            db.commit()  # Commit artifacts first so prover can find them
+            db.refresh(run)  # Refresh run to get updated state
+
+            prover = Prover(prover_id=self.worker_id)
+            evidence_pack = prover.prove(
+                db=db,
+                run=run,
+                task=task,
+                trace_store=store,
+            )
+            logger.info(
+                f"Evidence pack {evidence_pack.id} created with verdict: {evidence_pack.verdict}"
             )
 
         db.commit()

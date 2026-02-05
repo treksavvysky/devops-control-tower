@@ -214,6 +214,14 @@ cwom_constraint_scope_enum = Enum(
     "personal", "repo", "org", "system", "run", name="cwom_constraint_scope"
 )
 
+cwom_verdict_enum = Enum(
+    "pass", "fail", "partial", "pending", name="cwom_verdict"
+)
+
+cwom_criterion_status_enum = Enum(
+    "satisfied", "not_satisfied", "unverified", "skipped", name="cwom_criterion_status"
+)
+
 
 # =============================================================================
 # CWOM Database Models
@@ -888,6 +896,120 @@ class CWOMArtifactModel(Base):
             "size_bytes": self.size_bytes,
             "preview": self.preview,
             "verification": self.verification,
+            "tags": self.tags,
+            "meta": self.meta,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class CWOMEvidencePackModel(Base):
+    """SQLAlchemy model for CWOM EvidencePack objects.
+
+    Represents proof that a Run's outputs meet acceptance criteria.
+    """
+
+    __tablename__ = "cwom_evidence_packs"
+
+    # Object identity (ULID string)
+    id = Column(String(128), primary_key=True)
+    kind = Column(String(20), nullable=False, default="EvidencePack")
+
+    # Trace ID for unified traceability
+    trace_id = Column(String(36), nullable=True, index=True)
+
+    # Run reference (foreign key)
+    for_run_id = Column(
+        String(128), ForeignKey("cwom_runs.id"), nullable=False, index=True
+    )
+    for_run_kind = Column(String(20), nullable=False, default="Run")
+    for_run_role = Column(String(64), nullable=True)
+
+    # Issue reference (foreign key)
+    for_issue_id = Column(
+        String(128), ForeignKey("cwom_issues.id"), nullable=False, index=True
+    )
+    for_issue_kind = Column(String(20), nullable=False, default="Issue")
+    for_issue_role = Column(String(64), nullable=True)
+
+    # Verdict
+    verdict = Column(cwom_verdict_enum, nullable=False)  # Index in __table_args__
+    verdict_reason = Column(Text, nullable=False)
+
+    # Evaluation details
+    evaluated_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    evaluated_by_kind = Column(cwom_actor_kind_enum, nullable=False)
+    evaluated_by_id = Column(String(128), nullable=False)
+    evaluated_by_display = Column(String(256), nullable=True)
+
+    # Results - stored as JSON
+    criteria_results = Column(JSON, nullable=False, default=list)
+    evidence_collected = Column(JSON, nullable=False, default=list)
+    evidence_missing = Column(JSON, nullable=False, default=list)
+
+    # Check counts
+    checks_passed = Column(Integer, nullable=False, default=0)
+    checks_failed = Column(Integer, nullable=False, default=0)
+    checks_skipped = Column(Integer, nullable=False, default=0)
+
+    # Storage URI
+    evidence_uri = Column(String(2000), nullable=True)
+
+    # Metadata
+    tags = Column(JSON, nullable=False, default=list)
+    meta = Column(JSON, nullable=False, default=dict)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=func.now(),
+        onupdate=func.now(),
+    )
+
+    # SQLAlchemy Relationships
+    run_obj = relationship("CWOMRunModel", foreign_keys=[for_run_id])
+    issue_obj = relationship("CWOMIssueModel", foreign_keys=[for_issue_id])
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_cwom_evidence_packs_verdict", "verdict"),
+        Index("ix_cwom_evidence_packs_evaluated_at", "evaluated_at"),
+        Index("ix_cwom_evidence_packs_created_at", "created_at"),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary matching CWOM Pydantic schema."""
+        return {
+            "kind": self.kind,
+            "id": self.id,
+            "trace_id": self.trace_id,
+            "for_run": {
+                "kind": self.for_run_kind,
+                "id": self.for_run_id,
+                "role": self.for_run_role,
+            },
+            "for_issue": {
+                "kind": self.for_issue_kind,
+                "id": self.for_issue_id,
+                "role": self.for_issue_role,
+            },
+            "verdict": self.verdict,
+            "verdict_reason": self.verdict_reason,
+            "evaluated_at": self.evaluated_at.isoformat() if self.evaluated_at else None,
+            "evaluated_by": {
+                "kind": self.evaluated_by_kind,
+                "id": self.evaluated_by_id,
+                "display": self.evaluated_by_display,
+            },
+            "criteria_results": self.criteria_results,
+            "evidence_collected": self.evidence_collected,
+            "evidence_missing": self.evidence_missing,
+            "checks_passed": self.checks_passed,
+            "checks_failed": self.checks_failed,
+            "checks_skipped": self.checks_skipped,
+            "evidence_uri": self.evidence_uri,
             "tags": self.tags,
             "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
