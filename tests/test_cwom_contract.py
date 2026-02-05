@@ -59,7 +59,7 @@ class TestObjectKinds:
 
     @pytest.mark.parametrize(
         "kind",
-        ["Repo", "Issue", "ContextPacket", "Run", "Artifact", "ConstraintSnapshot", "DoctrineRef"],
+        ["Repo", "Issue", "ContextPacket", "Run", "Artifact", "ConstraintSnapshot", "DoctrineRef", "EvidencePack", "ReviewDecision"],
     )
     def test_object_kind_exists(self, kind: str):
         """All canonical object kinds must be defined."""
@@ -71,7 +71,7 @@ class TestStatusEnum:
 
     @pytest.mark.parametrize(
         "status",
-        ["planned", "ready", "running", "blocked", "done", "failed", "canceled"],
+        ["planned", "ready", "running", "blocked", "done", "failed", "canceled", "under_review"],
     )
     def test_status_exists(self, status: str):
         """All canonical statuses must be defined."""
@@ -327,3 +327,43 @@ class TestCausalityChain:
         assert run.inputs.doctrine_refs[0].id == doctrine.id
         assert run.inputs.constraint_snapshot.id == constraint.id
         assert artifact.produced_by.id == run.id
+
+
+class TestReviewDecisionContract:
+    """Test ReviewDecision schema contract."""
+
+    def test_review_decision_importable(self):
+        """ReviewDecision types must be importable from cwom."""
+        from devops_control_tower.cwom import (
+            ReviewDecision,
+            ReviewDecisionCreate,
+            CriterionOverride,
+            ReviewDecisionStatus,
+        )
+        assert ReviewDecision is not None
+        assert ReviewDecisionCreate is not None
+        assert CriterionOverride is not None
+        assert ReviewDecisionStatus is not None
+
+    def test_review_decision_status_values(self):
+        """ReviewDecisionStatus must have all required values."""
+        from devops_control_tower.cwom import ReviewDecisionStatus
+        values = {s.value for s in ReviewDecisionStatus}
+        assert values == {"approved", "rejected", "needs_changes"}
+
+    def test_review_decision_required_fields(self):
+        """ReviewDecision must have required fields."""
+        from devops_control_tower.cwom import (
+            ReviewDecision,
+            ReviewDecisionStatus,
+        )
+        review = ReviewDecision(
+            for_evidence_pack=Ref(kind=ObjectKind.EVIDENCE_PACK, id="ep1"),
+            for_run=Ref(kind=ObjectKind.RUN, id="run1"),
+            for_issue=Ref(kind=ObjectKind.ISSUE, id="issue1"),
+            reviewer=Actor(actor_kind=ActorKind.HUMAN, actor_id="reviewer1"),
+            decision=ReviewDecisionStatus.APPROVED,
+            decision_reason="Approved",
+        )
+        assert review.kind == "ReviewDecision"
+        assert review.id is not None

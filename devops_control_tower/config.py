@@ -84,6 +84,18 @@ class Settings(BaseSettings):
         description="Number of tasks to claim per poll cycle.",
     )
 
+    # Review Configuration (Step 5: Review → Merge Gate)
+    jct_review_auto_approve: bool = Field(
+        default=False,
+        env="JCT_REVIEW_AUTO_APPROVE",
+        description="Enable auto-approval of passing evidence packs.",
+    )
+    jct_review_auto_approve_verdicts: str = Field(
+        default="pass",
+        env="JCT_REVIEW_AUTO_APPROVE_VERDICTS",
+        description="Comma-separated verdicts that qualify for auto-approval.",
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

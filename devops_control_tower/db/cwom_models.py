@@ -151,6 +151,7 @@ cwom_status_enum = Enum(
     "done",
     "failed",
     "canceled",
+    "under_review",
     name="cwom_status",
 )
 
@@ -220,6 +221,10 @@ cwom_verdict_enum = Enum(
 
 cwom_criterion_status_enum = Enum(
     "satisfied", "not_satisfied", "unverified", "skipped", name="cwom_criterion_status"
+)
+
+cwom_review_decision_status_enum = Enum(
+    "approved", "rejected", "needs_changes", name="cwom_review_decision_status"
 )
 
 
@@ -1014,4 +1019,128 @@ class CWOMEvidencePackModel(Base):
             "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# =============================================================================
+# ReviewDecision
+# =============================================================================
+
+
+class CWOMReviewDecisionModel(Base):
+    """SQLAlchemy model for CWOM ReviewDecision objects.
+
+    Represents a review decision for an EvidencePack.
+    """
+
+    __tablename__ = "cwom_review_decisions"
+
+    # Object identity
+    id = Column(String(128), primary_key=True)
+    kind = Column(String(20), nullable=False, default="ReviewDecision")
+
+    # Trace ID
+    trace_id = Column(String(36), nullable=True, index=True)
+
+    # EvidencePack reference (Foreign Key Triple)
+    for_evidence_pack_id = Column(
+        String(128), ForeignKey("cwom_evidence_packs.id"), nullable=False, index=True
+    )
+    for_evidence_pack_kind = Column(String(20), nullable=False, default="EvidencePack")
+    for_evidence_pack_role = Column(String(64), nullable=True)
+
+    # Run reference (Foreign Key Triple)
+    for_run_id = Column(
+        String(128), ForeignKey("cwom_runs.id"), nullable=False, index=True
+    )
+    for_run_kind = Column(String(20), nullable=False, default="Run")
+    for_run_role = Column(String(64), nullable=True)
+
+    # Issue reference (Foreign Key Triple)
+    for_issue_id = Column(
+        String(128), ForeignKey("cwom_issues.id"), nullable=False, index=True
+    )
+    for_issue_kind = Column(String(20), nullable=False, default="Issue")
+    for_issue_role = Column(String(64), nullable=True)
+
+    # Reviewer (Actor denormalized)
+    reviewer_kind = Column(cwom_actor_kind_enum, nullable=False)
+    reviewer_id = Column(String(128), nullable=False)
+    reviewer_display = Column(String(256), nullable=True)
+
+    # Decision
+    decision = Column(cwom_review_decision_status_enum, nullable=False)
+    decision_reason = Column(Text, nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+
+    # Overrides (JSON)
+    criteria_overrides = Column(JSON, nullable=False, default=list)
+
+    # Metadata
+    tags = Column(JSON, nullable=False, default=list)
+    meta = Column(JSON, nullable=False, default=dict)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=func.now(),
+        onupdate=func.now(),
+    )
+
+    # Relationships
+    evidence_pack_obj = relationship(
+        "CWOMEvidencePackModel", foreign_keys=[for_evidence_pack_id]
+    )
+    run_obj = relationship("CWOMRunModel", foreign_keys=[for_run_id])
+    issue_obj = relationship("CWOMIssueModel", foreign_keys=[for_issue_id])
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_cwom_review_decisions_decision", "decision"),
+        Index("ix_cwom_review_decisions_reviewed_at", "reviewed_at"),
+        Index("ix_cwom_review_decisions_created_at", "created_at"),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary matching CWOM Pydantic schema."""
+        return {
+            "kind": self.kind,
+            "id": self.id,
+            "trace_id": self.trace_id,
+            "for_evidence_pack": {
+                "kind": self.for_evidence_pack_kind,
+                "id": self.for_evidence_pack_id,
+                "role": self.for_evidence_pack_role,
+            },
+            "for_run": {
+                "kind": self.for_run_kind,
+                "id": self.for_run_id,
+                "role": self.for_run_role,
+            },
+            "for_issue": {
+                "kind": self.for_issue_kind,
+                "id": self.for_issue_id,
+                "role": self.for_issue_role,
+            },
+            "reviewer": {
+                "actor_kind": self.reviewer_kind,
+                "actor_id": self.reviewer_id,
+                "display": self.reviewer_display,
+            },
+            "decision": self.decision,
+            "decision_reason": self.decision_reason,
+            "reviewed_at": (
+                self.reviewed_at.isoformat() if self.reviewed_at else None
+            ),
+            "criteria_overrides": self.criteria_overrides,
+            "tags": self.tags,
+            "meta": self.meta,
+            "created_at": (
+                self.created_at.isoformat() if self.created_at else None
+            ),
+            "updated_at": (
+                self.updated_at.isoformat() if self.updated_at else None
+            ),
         }

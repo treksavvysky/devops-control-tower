@@ -8,7 +8,7 @@ DevOps Control Tower (JCT - Jules Control Tower) is an orchestration backbone fo
 
 **Current Focus (v0 Spine):** The minimal viable path through all 5 pipeline steps. Advanced features (LLM workflows, monitoring agents, event routing) are disabled until the spine is validated.
 
-**v0 Pipeline Status:** Steps 1-4 complete. Step 5 (Review) next.
+**v0 Pipeline Status:** Steps 1-5 complete. Core spine validated.
 
 ## Common Commands
 
@@ -73,7 +73,7 @@ devops_control_tower/
 - **Worker**: Polls for `queued` tasks → creates CWOM Run → executes → proves → writes trace folder
 - **Prove**: Evaluates Run outputs → creates EvidencePack with verdict (pass/fail/partial)
 - **Trace Storage**: URI-based (`file://` v0, `s3://` v2). Run stores `artifact_root_uri`.
-- **CWOM Causality**: `Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack`
+- **CWOM Causality**: `Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack → ReviewDecision`
 - **AuditLog**: All CWOM operations auto-logged with before/after snapshots
 
 ## Contract Governance
@@ -118,6 +118,11 @@ Error codes: `INVALID_OPERATION`, `REPO_NOT_ALLOWED`, `TIME_BUDGET_TOO_LOW`, `TI
 | `/cwom/evidence-packs` | GET | List evidence packs |
 | `/cwom/runs/{id}/evidence-pack` | GET | Get evidence pack for run |
 | `/cwom/issues/{id}/evidence-packs` | GET | List evidence packs for issue |
+| `/cwom/reviews` | POST | Submit review decision (approved/rejected/needs_changes) |
+| `/cwom/reviews/{id}` | GET | Get review by ID |
+| `/cwom/reviews` | GET | List reviews (filter by evidence_pack, issue, decision) |
+| `/cwom/evidence-packs/{id}/review` | GET | Get review for evidence pack |
+| `/cwom/issues/{id}/reviews` | GET | List reviews for issue |
 
 Use `?create_cwom=true` on `/tasks/enqueue` to auto-create CWOM objects.
 
@@ -128,6 +133,8 @@ DATABASE_URL=sqlite:///./devops_control_tower.db  # Or postgresql://...
 JCT_ALLOWED_REPO_PREFIXES=myorg/,partnerorg/      # Empty = deny all repos
 JCT_TRACE_ROOT=file:///var/lib/jct/runs           # Trace storage (file:// or s3://)
 WORKER_POLL_INTERVAL=5                             # Seconds between polls
+JCT_REVIEW_AUTO_APPROVE=false                      # Auto-approve passing evidence packs
+JCT_REVIEW_AUTO_APPROVE_VERDICTS=pass              # Verdicts that qualify for auto-approve
 DEBUG=false
 API_PORT=8000
 OPENAI_API_KEY=...     # For AI agents
@@ -151,6 +158,7 @@ Integration test scripts:
 - `scripts/test_intake.sh` - End-to-end intake flow (9 tests)
 - `scripts/test_worker.sh` - End-to-end worker flow (7 tests)
 - `scripts/test_prove.sh` - End-to-end prove flow (8 tests)
+- `scripts/test_review.sh` - End-to-end review flow (9 tests)
 
 ## v0 Pipeline Steps
 
@@ -162,7 +170,7 @@ The core operating model: **Turn fuzzy intent into audited, deterministic work.*
 | 2 | **Gate** | ✅ Complete | Policy + feasibility checks (repo allowlist, time budgets, no secrets/network) |
 | 3 | **Work** | ✅ Complete | Worker claims task → creates Run → executes → writes trace folder |
 | 4 | **Prove** | ✅ Complete | Prover evaluates Run → creates EvidencePack with verdict |
-| 5 | **Review** | 🔲 Next | Merge gate - human/agent approval before PR merge |
+| 5 | **Review** | ✅ Complete | Merge gate - auto-approve or manual review before done |
 
 ### Step Details
 
@@ -191,17 +199,19 @@ The core operating model: **Turn fuzzy intent into audited, deterministic work.*
 - Creates EvidencePack with verdict: `pass`, `fail`, `partial`, or `pending`
 - Writes evidence folder: verdict.json, collected.json, criteria/
 
-**Step 5: Review → Merge Gate** (Next)
-- Human or agent reviews EvidencePack
-- Approves/rejects based on verdict and criteria
-- Gates PR merge (integration with GitHub)
-- Records review decision in AuditLog
+**Step 5: Review → Merge Gate**
+- After Prove, worker checks review policy (`JCT_REVIEW_AUTO_APPROVE`)
+- Auto-approve: If enabled AND verdict qualifies, creates ReviewDecision(approved, system), Issue/Run stay `done`
+- Manual review: Otherwise, Issue/Run transition to `under_review`, await `POST /cwom/reviews`
+- On approved: Issue/Run → `done`. On rejected/needs_changes: Issue/Run → `failed`
+- Task status stays `completed` (work IS done, review gates the Issue lifecycle)
+- v0: Internal review only. v1: GitHub PR integration with merge gates
 
 ## Stage Progress
 
 - **CWOM v0.1** (Complete): 8 object types with causality chain
 - **AuditLog** (Complete): Event sourcing for all CWOM operations
-- **v0 Pipeline** (Steps 1-4 Complete): Intake → Gate → Work → Prove
+- **v0 Pipeline** (Steps 1-5 Complete): Intake → Gate → Work → Prove → Review
 
 Progress docs:
 - `STAGE-01-SUMMARY.md`
@@ -222,10 +232,11 @@ CWOM is the "wiring standard" for composable work objects. Full spec: `docs/cwom
 | **Run** | Execution attempt |
 | **Artifact** | Output of a Run |
 | **EvidencePack** | Proof that Run outputs meet acceptance criteria |
+| **ReviewDecision** | Approval decision for an EvidencePack |
 
 **Causality Chain:**
 ```
-Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack
+Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack → ReviewDecision
 ```
 
 ```python
@@ -279,6 +290,8 @@ g8b9c0d1e2f3 (FK tasks.cwom_issue_id)
 h9c0d1e2f3a4 (artifact_root_uri on runs)
     ↓
 i0d1e2f3a4b5 (evidence_packs table)
+    ↓
+j1e2f3a4b5c6 (review_decisions table, under_review status)
 ```
 
 ## Worker Reference
@@ -318,7 +331,8 @@ python -m devops_control_tower.worker --poll-interval 10 --executor stub
 4. Execute: StubExecutor (v0) or real executor (v1+)
 5. Write trace: Folder with manifest, events, artifacts
 6. Prove: Evaluate outputs → create EvidencePack with verdict
-7. Complete: Update task/run/issue status to 'done'/'completed'
+7. Review: Auto-approve (if policy allows) or set Issue/Run to under_review
+8. Complete: Task → completed; Issue/Run → done (auto) or under_review (manual)
 ```
 
 ### EvidencePack Verdicts

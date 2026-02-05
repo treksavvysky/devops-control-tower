@@ -19,6 +19,7 @@ class ObjectKind(str, Enum):
     CONSTRAINT_SNAPSHOT = "ConstraintSnapshot"
     DOCTRINE_REF = "DoctrineRef"
     EVIDENCE_PACK = "EvidencePack"
+    REVIEW_DECISION = "ReviewDecision"
 
 
 class Status(str, Enum):
@@ -31,6 +32,7 @@ class Status(str, Enum):
     DONE = "done"
     FAILED = "failed"
     CANCELED = "canceled"
+    UNDER_REVIEW = "under_review"
 
 
 class IssueType(str, Enum):
@@ -184,3 +186,11 @@ class CriterionStatus(str, Enum):
     NOT_SATISFIED = "not_satisfied"
     UNVERIFIED = "unverified"  # v0: can't verify without LLM
     SKIPPED = "skipped"
+
+
+class ReviewDecisionStatus(str, Enum):
+    """Review decision outcome."""
+
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_CHANGES = "needs_changes"

@@ -20,8 +20,10 @@ from .services import (
     ImmutabilityError,
     IssueService,
     RepoService,
+    ReviewDecisionService,
     RunService,
 )
+from .review_decision import ReviewDecisionCreate
 from .repo import RepoCreate
 from .issue import IssueCreate
 from .context_packet import ContextPacketCreate
@@ -659,3 +661,110 @@ async def list_evidence_packs_for_issue(
         offset=offset,
     )
     return [ep.to_dict() for ep in evidence_packs]
+
+
+# =============================================================================
+# ReviewDecision Endpoints
+# =============================================================================
+
+
+@router.post("/reviews", status_code=201)
+async def create_review(
+    review: ReviewDecisionCreate,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Submit a review decision for an EvidencePack.
+
+    Updates Issue and Run status based on decision:
+    - approved -> Issue/Run status = done
+    - rejected/needs_changes -> Issue/Run status = failed
+    """
+    service = ReviewDecisionService(db)
+
+    try:
+        db_review = service.create(
+            review_data=review.model_dump(),
+            actor_kind=review.reviewer.actor_kind.value
+            if hasattr(review.reviewer.actor_kind, "value")
+            else str(review.reviewer.actor_kind),
+            actor_id=review.reviewer.actor_id,
+        )
+        return {
+            "status": "success",
+            "review": db_review.to_dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/reviews/{review_id}")
+async def get_review(
+    review_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get a ReviewDecision by ID."""
+    service = ReviewDecisionService(db)
+    review = service.get(review_id)
+
+    if not review:
+        raise HTTPException(status_code=404, detail="ReviewDecision not found")
+
+    return review.to_dict()
+
+
+@router.get("/reviews")
+async def list_reviews(
+    evidence_pack_id: Optional[str] = None,
+    issue_id: Optional[str] = None,
+    decision: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List ReviewDecisions with optional filtering."""
+    service = ReviewDecisionService(db)
+    reviews = service.list(
+        evidence_pack_id=evidence_pack_id,
+        issue_id=issue_id,
+        decision=decision,
+        limit=limit,
+        offset=offset,
+    )
+    return [r.to_dict() for r in reviews]
+
+
+@router.get("/evidence-packs/{evidence_pack_id}/review")
+async def get_review_for_evidence_pack(
+    evidence_pack_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get the ReviewDecision for an EvidencePack."""
+    service = ReviewDecisionService(db)
+    review = service.get_for_evidence_pack(evidence_pack_id)
+
+    if not review:
+        raise HTTPException(
+            status_code=404,
+            detail="No ReviewDecision found for this EvidencePack",
+        )
+
+    return review.to_dict()
+
+
+@router.get("/issues/{issue_id}/reviews")
+async def list_reviews_for_issue(
+    issue_id: str,
+    decision: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List ReviewDecisions for an Issue."""
+    service = ReviewDecisionService(db)
+    reviews = service.list_for_issue(
+        issue_id,
+        decision=decision,
+        limit=limit,
+        offset=offset,
+    )
+    return [r.to_dict() for r in reviews]

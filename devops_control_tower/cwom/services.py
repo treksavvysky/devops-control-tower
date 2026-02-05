@@ -21,6 +21,7 @@ from ..db.cwom_models import (
     CWOMEvidencePackModel,
     CWOMIssueModel,
     CWOMRepoModel,
+    CWOMReviewDecisionModel,
     CWOMRunModel,
     issue_constraint_snapshots,
     issue_context_packets,
@@ -1012,6 +1013,221 @@ class EvidencePackService:
 
         return (
             query.order_by(desc(CWOMEvidencePackModel.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+
+class ReviewDecisionService:
+    """Service for ReviewDecision CRUD operations."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.audit = AuditService(db)
+
+    def create(
+        self,
+        review_data: Dict[str, Any],
+        actor_kind: str = "system",
+        actor_id: str = "cwom-service",
+        trace_id: Optional[str] = None,
+    ) -> CWOMReviewDecisionModel:
+        """Create a ReviewDecision and update Issue/Run status.
+
+        On approved: Issue/Run -> done
+        On rejected/needs_changes: Issue/Run -> failed
+        """
+        from .primitives import generate_ulid
+
+        # Validate evidence pack exists
+        ep_id = review_data["for_evidence_pack"]["id"]
+        evidence_pack = (
+            self.db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.id == ep_id)
+            .first()
+        )
+        if not evidence_pack:
+            raise ValueError(f"EvidencePack '{ep_id}' not found")
+
+        # Validate issue exists and is under_review
+        issue_id = review_data["for_issue"]["id"]
+        issue = (
+            self.db.query(CWOMIssueModel)
+            .filter(CWOMIssueModel.id == issue_id)
+            .first()
+        )
+        if not issue:
+            raise ValueError(f"Issue '{issue_id}' not found")
+        if issue.status != "under_review":
+            raise ValueError(
+                f"Issue '{issue_id}' is not under review (status: {issue.status})"
+            )
+
+        # Get run
+        run_id = review_data["for_run"]["id"]
+        run = (
+            self.db.query(CWOMRunModel)
+            .filter(CWOMRunModel.id == run_id)
+            .first()
+        )
+
+        now = datetime.now(timezone.utc)
+        reviewer = review_data["reviewer"]
+        decision = review_data["decision"]
+
+        # Create review decision
+        db_review = CWOMReviewDecisionModel(
+            id=generate_ulid(),
+            kind="ReviewDecision",
+            trace_id=trace_id,
+            for_evidence_pack_id=ep_id,
+            for_evidence_pack_kind=review_data["for_evidence_pack"].get(
+                "kind", "EvidencePack"
+            ),
+            for_evidence_pack_role=review_data["for_evidence_pack"].get("role"),
+            for_run_id=run_id,
+            for_run_kind=review_data["for_run"].get("kind", "Run"),
+            for_run_role=review_data["for_run"].get("role"),
+            for_issue_id=issue_id,
+            for_issue_kind=review_data["for_issue"].get("kind", "Issue"),
+            for_issue_role=review_data["for_issue"].get("role"),
+            reviewer_kind=reviewer["actor_kind"],
+            reviewer_id=reviewer["actor_id"],
+            reviewer_display=reviewer.get("display"),
+            decision=decision,
+            decision_reason=review_data["decision_reason"],
+            reviewed_at=now,
+            criteria_overrides=review_data.get("criteria_overrides", []),
+            tags=review_data.get("tags", []),
+            meta=review_data.get("meta", {}),
+            created_at=now,
+            updated_at=now,
+        )
+
+        self.db.add(db_review)
+
+        # Update Issue and Run status based on decision
+        old_issue_status = issue.status
+        old_run_status = run.status if run else None
+
+        if decision == "approved":
+            issue.status = "done"
+            if run:
+                run.status = "done"
+        else:  # rejected or needs_changes
+            issue.status = "failed"
+            if run:
+                run.status = "failed"
+
+        issue.updated_at = now
+        if run:
+            run.updated_at = now
+
+        self.db.commit()
+        self.db.refresh(db_review)
+
+        # Audit logs
+        self.audit.log_create(
+            entity_kind="ReviewDecision",
+            entity_id=db_review.id,
+            after=db_review.to_dict(),
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            trace_id=trace_id,
+        )
+
+        self.audit.log_status_change(
+            entity_kind="Issue",
+            entity_id=issue.id,
+            old_status=old_issue_status,
+            new_status=issue.status,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            trace_id=trace_id,
+            note=f"Review decision: {decision}",
+        )
+
+        if run:
+            self.audit.log_status_change(
+                entity_kind="Run",
+                entity_id=run.id,
+                old_status=old_run_status,
+                new_status=run.status,
+                actor_kind=actor_kind,
+                actor_id=actor_id,
+                trace_id=trace_id,
+                note=f"Review decision: {decision}",
+            )
+
+        return db_review
+
+    def get(self, review_id: str) -> Optional[CWOMReviewDecisionModel]:
+        """Get a ReviewDecision by ID."""
+        return (
+            self.db.query(CWOMReviewDecisionModel)
+            .filter(CWOMReviewDecisionModel.id == review_id)
+            .first()
+        )
+
+    def get_for_evidence_pack(
+        self, evidence_pack_id: str
+    ) -> Optional[CWOMReviewDecisionModel]:
+        """Get the ReviewDecision for an EvidencePack."""
+        return (
+            self.db.query(CWOMReviewDecisionModel)
+            .filter(
+                CWOMReviewDecisionModel.for_evidence_pack_id == evidence_pack_id
+            )
+            .first()
+        )
+
+    def list(
+        self,
+        evidence_pack_id: Optional[str] = None,
+        issue_id: Optional[str] = None,
+        decision: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[CWOMReviewDecisionModel]:
+        """List ReviewDecisions with optional filtering."""
+        query = self.db.query(CWOMReviewDecisionModel)
+
+        if evidence_pack_id:
+            query = query.filter(
+                CWOMReviewDecisionModel.for_evidence_pack_id == evidence_pack_id
+            )
+        if issue_id:
+            query = query.filter(
+                CWOMReviewDecisionModel.for_issue_id == issue_id
+            )
+        if decision:
+            query = query.filter(CWOMReviewDecisionModel.decision == decision)
+
+        return (
+            query.order_by(desc(CWOMReviewDecisionModel.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def list_for_issue(
+        self,
+        issue_id: str,
+        decision: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[CWOMReviewDecisionModel]:
+        """List ReviewDecisions for an Issue."""
+        query = self.db.query(CWOMReviewDecisionModel).filter(
+            CWOMReviewDecisionModel.for_issue_id == issue_id
+        )
+
+        if decision:
+            query = query.filter(CWOMReviewDecisionModel.decision == decision)
+
+        return (
+            query.order_by(desc(CWOMReviewDecisionModel.created_at))
             .offset(offset)
             .limit(limit)
             .all()
