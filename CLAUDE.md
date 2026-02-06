@@ -33,6 +33,9 @@ pytest tests/test_file.py::test_name -v   # Single test
 pytest -k "pattern"                       # By name pattern
 pytest --cov=devops_control_tower         # With coverage (40% minimum)
 
+# Verify migrations on fresh DB
+bash scripts/verify_db_fresh.sh
+
 # Linting (also runs in CI via pre-commit)
 black .
 isort .
@@ -160,6 +163,7 @@ Integration test scripts:
 - `scripts/test_worker.sh` - End-to-end worker flow (7 tests)
 - `scripts/test_prove.sh` - End-to-end prove flow (8 tests)
 - `scripts/test_review.sh` - End-to-end review flow (9 tests)
+- `scripts/verify_db_fresh.sh` - Fresh DB migration verification (upgrade, table check, downgrade, fork detection)
 
 ## v0 Pipeline Steps
 
@@ -214,11 +218,12 @@ The core operating model: **Turn fuzzy intent into audited, deterministic work.*
 - **AuditLog** (Complete): Event sourcing for all CWOM operations
 - **v0 Pipeline** (Steps 1-5 Complete): Intake → Gate → Work → Prove → Review
 - **Phase 3 CRUD Integration Tests** (Complete): 55 tests covering DB round-trips, relationships, join table queries, full causality chain, immutability, status transitions, audit trails
+- **Phase 4 CI Verification** (Complete): Fresh DB migration verification (SQLite + PostgreSQL) in CI
 
 Progress docs:
 - `STAGE-01-SUMMARY.md`
 - `docs/cwom/CWOM-IMPLEMENTATION-PLAN.md`
-- `docs/cwom/CWOM-COMPLETION-ROADMAP.md`
+- `docs/cwom/CWOM-COMPLETION-ROADMAP.md` (Phases 1-4 Complete)
 
 ## CWOM Reference
 

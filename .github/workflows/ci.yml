@@ -71,6 +71,19 @@ jobs:
         coverage run -m pytest
         coverage xml
 
+    - name: Verify fresh DB migrations (SQLite)
+      run: bash scripts/verify_db_fresh.sh
+
+    - name: Verify fresh DB migrations (PostgreSQL)
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_fresh_migration
+      run: |
+        PGPASSWORD=postgres createdb -h localhost -U postgres test_fresh_migration
+        alembic upgrade head
+        alembic downgrade -1
+        alembic upgrade head
+        PGPASSWORD=postgres dropdb -h localhost -U postgres test_fresh_migration
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:

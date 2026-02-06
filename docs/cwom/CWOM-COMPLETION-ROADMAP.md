@@ -1,7 +1,8 @@
 # CWOM v0.1 Completion Roadmap
 
 **Date**: 2026-01-26
-**Status**: Phase 1-3 Complete, Phase 4 Pending
+**Updated**: 2026-02-06
+**Status**: Phase 1-4 Complete
 
 ---
 
@@ -203,63 +204,28 @@ Tests for:
 
 ---
 
-### Phase 4: Fresh DB Verification (Priority: HIGH)
+### Phase 4: Fresh DB Verification (Priority: HIGH) ✅ COMPLETE
 
-#### 4.1 Create Verification Script
+**Completed**: 2026-02-06
+
+#### 4.1 Create Verification Script ✅
 
 **File**: `scripts/verify_db_fresh.sh`
 
-```bash
-#!/bin/bash
-# Verify migrations apply cleanly on fresh DB
+Script performs 5 checks:
+1. `alembic upgrade head` on fresh SQLite DB
+2. Verify all 22 application tables + alembic_version exist
+3. `alembic downgrade -1` succeeds
+4. Re-upgrade to head succeeds
+5. Migration history is linear (no forks) — walks the chain programmatically
 
-set -e
+#### 4.2 Add to CI ✅
 
-# Create temp DB
-export DATABASE_URL="sqlite:///./test_fresh_migration.db"
-rm -f test_fresh_migration.db
+**File**: `.github/workflows/ci.yml`
 
-# Run migrations
-alembic upgrade head
-
-# Verify tables exist
-python -c "
-from devops_control_tower.db.base import get_engine
-from sqlalchemy import inspect
-
-engine = get_engine()
-tables = inspect(engine).get_table_names()
-
-required = [
-    'tasks', 'jobs', 'artifacts',
-    'cwom_repos', 'cwom_issues', 'cwom_context_packets',
-    'cwom_constraint_snapshots', 'cwom_doctrine_refs',
-    'cwom_runs', 'cwom_artifacts',
-    'cwom_issue_context_packets', 'cwom_issue_doctrine_refs',
-    'cwom_issue_constraint_snapshots', 'cwom_run_context_packets',
-    'cwom_run_doctrine_refs', 'cwom_context_packet_doctrine_refs',
-    'audit_log',  # After Phase 2
-]
-
-missing = [t for t in required if t not in tables]
-if missing:
-    print(f'FAIL: Missing tables: {missing}')
-    exit(1)
-
-print(f'PASS: All {len(required)} required tables present')
-"
-
-# Test downgrade
-alembic downgrade -1
-alembic upgrade head
-
-echo "SUCCESS: Fresh DB verification passed"
-rm test_fresh_migration.db
-```
-
-#### 4.2 Add to CI
-
-Add fresh DB verification to GitHub Actions workflow.
+Added two CI steps after tests:
+- **SQLite**: Runs `scripts/verify_db_fresh.sh` (full 5-check verification)
+- **PostgreSQL**: Creates fresh DB, runs upgrade/downgrade/upgrade cycle against Postgres service
 
 ---
 
@@ -292,9 +258,9 @@ Pass means all of this is true:
    - ✅ AuditLog (Phase 2 complete)
 
 2. **Alembic migrations**:
-   - ⬜ `alembic upgrade head` succeeds on a fresh DB (creates ALL tables)
-   - ⬜ `alembic downgrade -1` works at least one step
-   - ⬜ `alembic history` shows a coherent chain (no forks)
+   - ✅ `alembic upgrade head` succeeds on a fresh DB (creates ALL tables)
+   - ✅ `alembic downgrade -1` works at least one step
+   - ✅ `alembic history` shows a coherent chain (no forks)
 
 3. **DB invariants**:
    - ✅ Primary keys, FKs, enums, timestamps
@@ -328,9 +294,9 @@ Pass means all of this is true:
 ### Phase 3 Files (Complete)
 - ✅ `tests/test_cwom_crud_integration.py` - Created (55 tests, 8 classes)
 
-### Phase 4 Files (Pending)
-- `scripts/verify_db_fresh.sh`
-- `.github/workflows/*.yml` - Add fresh DB verification step
+### Phase 4 Files (Complete)
+- ✅ `scripts/verify_db_fresh.sh` - Updated (5-check verification with table inventory and fork detection)
+- ✅ `.github/workflows/ci.yml` - Updated (SQLite + PostgreSQL fresh DB verification steps)
 
 ---
 
@@ -340,4 +306,4 @@ Pass means all of this is true:
 2. ~~**Phase 1**: Fix trace_id model mismatch~~ ✅ Complete
 3. ~~**Phase 2**: Implement AuditLog~~ ✅ Complete (2026-01-26)
 4. ~~**Phase 3**: Add integration tests with real DB~~ ✅ Complete (2026-02-05)
-5. **Phase 4**: CI verification (NEXT)
+5. ~~**Phase 4**: CI verification~~ ✅ Complete (2026-02-06)
