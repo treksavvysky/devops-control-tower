@@ -21,6 +21,30 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  worker:
+    build: .
+    command: ["python", "-m", "devops_control_tower.worker"]
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://devops:devops@postgres:5432/devops_control_tower}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - JCT_ALLOWED_REPO_PREFIXES=${JCT_ALLOWED_REPO_PREFIXES:-}
+      - JCT_TRACE_ROOT=${JCT_TRACE_ROOT:-file:///var/lib/jct/runs}
+      - JCT_REVIEW_AUTO_APPROVE=${JCT_REVIEW_AUTO_APPROVE:-false}
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - trace_data:/var/lib/jct/runs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     ports:
@@ -52,3 +76,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  trace_data:
