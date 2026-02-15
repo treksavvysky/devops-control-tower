@@ -13,9 +13,13 @@ DevOps Control Tower (JCT - Jules Control Tower) is an orchestration backbone fo
 ## Common Commands
 
 ```bash
-# Setup
+# Setup (Poetry - preferred for development)
+poetry install
+cp .env.example .env
+
+# Setup (pip alternative)
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -r requirements-dev.txt && pip install -e .
 cp .env.example .env
 
 # Database
@@ -36,12 +40,12 @@ pytest --cov=devops_control_tower         # With coverage (40% minimum)
 # Verify migrations on fresh DB
 bash scripts/verify_db_fresh.sh
 
-# Linting (also runs in CI via pre-commit)
-black .
-isort .
-flake8 .
-mypy devops_control_tower
+# Linting (runs in CI via pre-commit)
+pre-commit run --all-files                # Run all hooks (black, isort, flake8)
+mypy devops_control_tower                 # Type checking (not in pre-commit due to SQLAlchemy issues)
 ```
+
+**Python version:** 3.10+ supported, 3.12 recommended (used in CI and Docker).
 
 ## Architecture
 
@@ -72,7 +76,8 @@ devops_control_tower/
 ### Key Patterns
 
 - **Database**: SQLite by default. Set `DATABASE_URL` for Postgres.
-- **Task Intake**: `POST /tasks/enqueue` → policy validation → DB persist with status `queued`
+- **Service Layer**: All DB operations go through service classes (`cwom/services.py`, `db/services.py`, `db/audit_service.py`). Services handle CRUD + business logic validation + audit logging. Never use ORM models directly for state changes.
+- **Task Intake**: `POST /tasks/enqueue` → policy validation → DB persist with status `queued`. Idempotency key collisions return **409 Conflict**.
 - **Worker**: Polls for `queued` tasks → creates CWOM Run → executes → proves → writes trace folder
 - **Prove**: Evaluates Run outputs → creates EvidencePack with verdict (pass/fail/partial)
 - **Trace Storage**: URI-based (`file://` v0, `s3://` v2). Run stores `artifact_root_uri`.
@@ -149,6 +154,18 @@ ANTHROPIC_API_KEY=...  # For AI agents
 - pytest markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.e2e`
 - Coverage minimum: 40%
 - CI uses Postgres; local dev uses SQLite by default
+- CI also runs pre-commit hooks and Bandit/Safety security scans
+
+### Test DB Setup (critical pattern in `tests/conftest.py`)
+
+Tests use in-memory SQLite with `StaticPool`. The conftest patches `db_base.SessionLocal` **before** importing the app, so the orchestrator (which creates its own sessions) also uses the test DB. Import order matters:
+
+1. `os.environ.setdefault("JCT_ALLOWED_REPO_PREFIXES", "testorg/")` — set env before app import
+2. Patch `db_base.SessionLocal = TestSessionLocal` — before app import
+3. `from devops_control_tower.api import app` — import app after patching
+4. `app.dependency_overrides[get_db] = override_get_db` — for route-injected sessions
+
+Use `db_session` fixture for direct DB tests, `client` fixture for API tests.
 
 Key test files:
 - `tests/test_api_tasks.py` - Task enqueue endpoint
@@ -158,12 +175,15 @@ Key test files:
 - `tests/test_cwom_crud_integration.py` - Phase 3: DB round-trips, relationships, join table queries, causality chain (55 tests)
 - `tests/test_audit_log.py` - AuditLog model and service
 
-Integration test scripts:
-- `scripts/test_intake.sh` - End-to-end intake flow (9 tests)
-- `scripts/test_worker.sh` - End-to-end worker flow (7 tests)
-- `scripts/test_prove.sh` - End-to-end prove flow (8 tests)
-- `scripts/test_review.sh` - End-to-end review flow (9 tests)
-- `scripts/verify_db_fresh.sh` - Fresh DB migration verification (upgrade, table check, downgrade, fork detection)
+### Integration test scripts (require running server + `jq`)
+
+```bash
+./scripts/test_intake.sh [BASE_URL]   # 9 tests - end-to-end intake flow
+./scripts/test_worker.sh [BASE_URL]   # 7 tests - end-to-end worker flow
+./scripts/test_prove.sh [BASE_URL]    # 8 tests - end-to-end prove flow
+./scripts/test_review.sh [BASE_URL]   # 9 tests - end-to-end review flow
+bash scripts/verify_db_fresh.sh       # Fresh DB migration verification (no server needed)
+```
 
 ## v0 Pipeline Steps
 
