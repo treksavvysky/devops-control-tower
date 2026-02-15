@@ -65,9 +65,11 @@ devops_control_tower/
 │   └── migrations/      # Alembic migrations (single directory)
 ├── core/
 │   └── enhanced_orchestrator.py  # Global singleton, DB-integrated
+├── mcp.py               # JCT MCP server (FastMCP, 12 tools for Claude Code integration)
 ├── agents/base.py       # BaseAgent (abstract), AIAgent (LLM-enabled)
 └── worker/              # v0 Worker
     ├── loop.py          # Main worker loop (poll, claim, execute, prove, complete)
+    ├── pipeline.py      # Shared prove + review functions (used by both worker and MCP)
     ├── executor.py      # Task executors (StubExecutor for v0)
     ├── prover.py        # Proof evaluation → EvidencePack creation
     └── storage.py       # Trace storage (file:// for v0, s3:// for v2)
@@ -174,6 +176,7 @@ Key test files:
 - `tests/test_cwom_*.py` - CWOM schemas, DB, API, integration
 - `tests/test_cwom_crud_integration.py` - Phase 3: DB round-trips, relationships, join table queries, causality chain (55 tests)
 - `tests/test_audit_log.py` - AuditLog model and service
+- `tests/test_mcp_server.py` - JCT MCP server tools (35 tests, 9 classes)
 
 ### Integration test scripts (require running server + `jq`)
 
@@ -239,6 +242,7 @@ The core operating model: **Turn fuzzy intent into audited, deterministic work.*
 - **v0 Pipeline** (Steps 1-5 Complete): Intake → Gate → Work → Prove → Review
 - **Phase 3 CRUD Integration Tests** (Complete): 55 tests covering DB round-trips, relationships, join table queries, full causality chain, immutability, status transitions, audit trails
 - **Phase 4 CI Verification** (Complete): Fresh DB migration verification (SQLite + PostgreSQL) in CI
+- **JCT MCP Server** (Complete): 12 tools for Claude Code integration, shared pipeline extraction, 35 tests
 
 Progress docs:
 - `STAGE-01-SUMMARY.md`
@@ -372,3 +376,67 @@ python -m devops_control_tower.worker --poll-interval 10 --executor stub
 | `pending` | Awaiting evaluation (not used in v0) |
 
 v0 marks acceptance criteria as "unverified" - LLM evaluation comes in v1.
+
+## JCT MCP Server
+
+The MCP server lets Claude Code act as a real executor — claiming tasks, doing work with native tools, and reporting results back through MCP tool calls. This eliminates subprocess management, prompt synthesis, and output parsing.
+
+```bash
+# Start MCP server (stdio transport)
+jct-mcp
+python -m devops_control_tower.mcp
+```
+
+### Claude Code Configuration
+
+Add to `.claude/settings.local.json`:
+```json
+{
+  "mcpServers": {
+    "jct": {
+      "command": "jct-mcp",
+      "env": {
+        "DATABASE_URL": "sqlite:///./devops_control_tower.db",
+        "JCT_ALLOWED_REPO_PREFIXES": "myorg/",
+        "JCT_TRACE_ROOT": "file:///var/lib/jct/runs"
+      }
+    }
+  }
+}
+```
+
+### MCP Tool Inventory
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `jct_list_tasks` | Lifecycle | List tasks by status (default: queued) |
+| `jct_claim_task` | Lifecycle | Atomically claim a queued task, creates Run with mode=agent |
+| `jct_get_context` | Lifecycle | Get ContextPacket + ConstraintSnapshot for a claimed task |
+| `jct_report_artifact` | Lifecycle | Upload an artifact (diff, log, file) to the trace store |
+| `jct_complete_task` | Lifecycle | Mark task done/failed, triggers prove + review pipeline |
+| `jct_get_task` | Observation | Get task details by ID |
+| `jct_get_run` | Observation | Get run details by ID |
+| `jct_get_evidence` | Observation | Get evidence pack by ID |
+| `jct_get_audit_trail` | Observation | Get audit log for any CWOM entity |
+| `jct_submit_review` | Review | Approve/reject an evidence pack |
+| `jct_list_pending_reviews` | Review | List evidence packs awaiting review |
+| `jct_enqueue_task` | Creation | Submit a new task (policy validated) |
+
+### Agent Workflow
+
+```
+1. jct_list_tasks()                          # Find queued work
+2. jct_claim_task(task_id)                   # Claim it (creates Run)
+3. jct_get_context(task_id)                  # Read briefing + constraints
+4. ... do the work using Claude Code tools ...
+5. jct_report_artifact(task_id, name, content)  # Upload results
+6. jct_complete_task(task_id, success=true)   # Triggers prove + review
+```
+
+### Implementation Notes
+
+- **Shared pipeline**: `worker/pipeline.py` contains `run_prove()` and `apply_review_policy()` used by both the worker loop and MCP server
+- **Run mode**: Worker creates runs with `mode="system"`, MCP creates with `mode="agent"` for audit differentiation
+- **In-memory claims**: `_active_claims` dict tracks task_id → run_id/trace_uri/store mappings, with DB fallback
+- **Design doc**: `docs/JCT-MCP-SERVER-DESIGN.md` has full tool specs, response shapes, and architecture details
+- **Tests**: `tests/test_mcp_server.py` — 35 tests across 9 classes

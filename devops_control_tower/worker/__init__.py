@@ -23,6 +23,7 @@ from .executor import (
     get_executor,
 )
 from .loop import WorkerLoop, run_worker
+from .pipeline import apply_review_policy, run_prove
 from .prover import Prover, ProofResult
 from .storage import TraceStore, FileTraceStore, create_trace_store, get_trace_uri
 
@@ -40,6 +41,9 @@ __all__ = [
     "ExecutionResult",
     "StubExecutor",
     "get_executor",
+    # v0 Pipeline (shared prove + review)
+    "run_prove",
+    "apply_review_policy",
     # v0 Prover
     "Prover",
     "ProofResult",

@@ -36,6 +36,7 @@ from ..db.cwom_models import (
 from ..db.models import TaskModel
 from ..db.audit_service import AuditService
 from .executor import ExecutionContext, ExecutionResult, get_executor
+from .pipeline import apply_review_policy, run_prove
 from .prover import Prover
 from .storage import create_trace_store, get_trace_uri
 
@@ -506,24 +507,23 @@ class WorkerLoop:
             db.commit()  # Commit artifacts first so prover can find them
             db.refresh(run)  # Refresh run to get updated state
 
-            prover = Prover(prover_id=self.worker_id)
-            evidence_pack = prover.prove(
+            evidence_pack = run_prove(
                 db=db,
                 run=run,
                 task=task,
-                trace_store=store,
-            )
-            logger.info(
-                f"Evidence pack {evidence_pack.id} created with verdict: {evidence_pack.verdict}"
+                store=store,
+                prover_id=self.worker_id,
             )
 
             # Step 5: Review - Check review policy
             if result.success:
-                self._apply_review_policy(
+                apply_review_policy(
                     db=db,
                     task=task,
                     run=run,
                     evidence_pack=evidence_pack,
+                    actor_id=self.worker_id,
+                    trace_id=task.trace_id,
                 )
 
         db.commit()
@@ -531,122 +531,6 @@ class WorkerLoop:
             f"Task {task.id} {'completed' if result.success else 'failed'}: "
             f"{result.outputs.get('message', '')}"
         )
-
-    def _apply_review_policy(
-        self,
-        db: Session,
-        task: TaskModel,
-        run: CWOMRunModel,
-        evidence_pack,
-    ) -> None:
-        """Step 5: Apply review policy after prove.
-
-        Auto-approve path: create ReviewDecision(approved, system), leave done.
-        Manual review path: transition Run/Issue to under_review.
-        """
-        settings = get_settings()
-        auto_approve = settings.jct_review_auto_approve
-        allowed_verdicts = [
-            v.strip()
-            for v in settings.jct_review_auto_approve_verdicts.split(",")
-        ]
-        verdict_qualifies = evidence_pack.verdict in allowed_verdicts
-
-        if auto_approve and verdict_qualifies:
-            # Auto-approve: create system ReviewDecision, leave Run/Issue as done
-            from ..cwom.services import ReviewDecisionService
-
-            review_service = ReviewDecisionService(db)
-            review_data = {
-                "for_evidence_pack": {
-                    "kind": "EvidencePack",
-                    "id": evidence_pack.id,
-                },
-                "for_run": {"kind": "Run", "id": run.id},
-                "for_issue": {"kind": "Issue", "id": run.for_issue_id},
-                "reviewer": {
-                    "actor_kind": "system",
-                    "actor_id": "auto-approve",
-                    "display": "Automatic Review (Policy-Based)",
-                },
-                "decision": "approved",
-                "decision_reason": (
-                    f"Auto-approved: verdict={evidence_pack.verdict}"
-                ),
-                "tags": ["auto-approved", "v0"],
-            }
-
-            # Issue must be under_review for service.create to work,
-            # so temporarily set it
-            issue = (
-                db.query(CWOMIssueModel)
-                .filter(CWOMIssueModel.id == run.for_issue_id)
-                .first()
-            )
-            if issue:
-                issue.status = "under_review"
-                run.status = "under_review"
-                db.flush()
-
-            review = review_service.create(
-                review_data=review_data,
-                actor_kind="system",
-                actor_id=self.worker_id,
-                trace_id=task.trace_id,
-            )
-            logger.info(
-                f"Auto-approved: review {review.id} for evidence pack "
-                f"{evidence_pack.id}"
-            )
-        else:
-            # Manual review: transition Run/Issue to under_review
-            logger.info(
-                f"Evidence pack {evidence_pack.id} requires manual review "
-                f"(verdict: {evidence_pack.verdict})"
-            )
-
-            issue = (
-                db.query(CWOMIssueModel)
-                .filter(CWOMIssueModel.id == run.for_issue_id)
-                .first()
-            )
-
-            old_run_status = run.status
-            run.status = "under_review"
-            run.updated_at = datetime.now(timezone.utc)
-
-            audit = AuditService(db)
-            audit.log_status_change(
-                entity_kind="Run",
-                entity_id=run.id,
-                old_status=old_run_status,
-                new_status="under_review",
-                actor_kind="system",
-                actor_id=self.worker_id,
-                note="Awaiting manual review",
-                trace_id=task.trace_id,
-            )
-
-            if issue:
-                old_issue_status = issue.status
-                issue.status = "under_review"
-                issue.updated_at = datetime.now(timezone.utc)
-
-                audit.log_status_change(
-                    entity_kind="Issue",
-                    entity_id=issue.id,
-                    old_status=old_issue_status,
-                    new_status="under_review",
-                    actor_kind="system",
-                    actor_id=self.worker_id,
-                    note="Awaiting manual review",
-                    trace_id=task.trace_id,
-                )
-
-            logger.info(
-                f"Run {run.id} and Issue "
-                f"{issue.id if issue else 'N/A'} set to under_review"
-            )
 
     def _handle_failure(
         self,
