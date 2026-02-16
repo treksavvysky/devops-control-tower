@@ -25,10 +25,14 @@ cp .env.example .env
 # Database
 alembic upgrade head                      # Apply migrations
 
-# Run
+# Run (local)
 python -m devops_control_tower.main       # Start FastAPI server
 python -m devops_control_tower.worker     # Start worker (processes queued tasks)
-docker compose up                         # Run with Docker
+
+# Run (Docker - includes API, worker, Postgres, Redis)
+docker compose up -d postgres redis                                              # Start infra first
+docker compose run --rm --entrypoint "" control-tower alembic upgrade head       # Migrate (first time only)
+docker compose up -d                                                              # Start all services
 
 # Testing
 pytest                                    # All tests
@@ -389,21 +393,27 @@ python -m devops_control_tower.mcp
 
 ### Claude Code Configuration
 
-Add to `.claude/settings.local.json`:
+Add to `.claude/settings.local.json` (or workspace `.mcp.json`):
 ```json
 {
   "mcpServers": {
     "jct": {
-      "command": "jct-mcp",
+      "command": "python3",
+      "args": ["-m", "devops_control_tower.mcp"],
+      "cwd": "/root/projects/devops-control-tower",
       "env": {
-        "DATABASE_URL": "sqlite:///./devops_control_tower.db",
-        "JCT_ALLOWED_REPO_PREFIXES": "myorg/",
-        "JCT_TRACE_ROOT": "file:///var/lib/jct/runs"
+        "DATABASE_URL": "postgresql+psycopg2://devops:devops@localhost:5432/devops_control_tower",
+        "JCT_ALLOWED_REPO_PREFIXES": "testorg/,myorg/",
+        "JCT_TRACE_ROOT": "file:///tmp/jct-traces",
+        "JCT_REVIEW_AUTO_APPROVE": "true",
+        "JCT_REVIEW_AUTO_APPROVE_VERDICTS": "pass"
       }
     }
   }
 }
 ```
+
+**Important:** The MCP server runs as a local stdio process, so use `localhost:5432` (not `postgres:5432` which is Docker-internal). The Docker stack must be running for Postgres access.
 
 ### MCP Tool Inventory
 
@@ -440,3 +450,4 @@ Add to `.claude/settings.local.json`:
 - **In-memory claims**: `_active_claims` dict tracks task_id → run_id/trace_uri/store mappings, with DB fallback
 - **Design doc**: `docs/JCT-MCP-SERVER-DESIGN.md` has full tool specs, response shapes, and architecture details
 - **Tests**: `tests/test_mcp_server.py` — 35 tests across 9 classes
+- **Live test plan**: `docs/JCT-MCP-EXECUTOR-TEST-PLAN.md` — 8 scenarios for testing with Claude Code as executor
