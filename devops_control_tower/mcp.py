@@ -15,8 +15,6 @@ Claude Code configuration (.claude/settings.local.json):
       }
     }
 """
-from __future__ import annotations
-
 import json
 import logging
 import sys
@@ -496,6 +494,17 @@ def jct_report_artifact(
     media_type: str = "text/plain",
 ) -> str:
     """Report an artifact produced during execution."""
+    # Validate artifact_type against the CWOM enum
+    from devops_control_tower.cwom.enums import ArtifactType
+
+    valid_types = [e.value for e in ArtifactType]
+    if artifact_type not in valid_types:
+        return _error(
+            "INVALID_ARTIFACT_TYPE",
+            f"'{artifact_type}' is not a valid artifact type. "
+            f"Valid types: {', '.join(valid_types)}",
+        )
+
     db = _get_db()
     try:
         from devops_control_tower.db.audit_service import AuditService
@@ -715,38 +724,45 @@ def jct_complete_task(
                 response["run_id"] = run_id
                 response["run_status"] = run.status
 
-                # Commit artifacts before prove
-                db.commit()
-                db.refresh(run)
+                # Flush (not commit) so prove can read updated state
+                db.flush()
 
                 # Step 4: Prove
-                evidence_pack = run_prove(
-                    db=db,
-                    run=run,
-                    task=task,
-                    store=store,
-                    prover_id="claude-code-mcp",
-                )
-                response["evidence_pack"] = {
-                    "id": evidence_pack.id,
-                    "verdict": evidence_pack.verdict,
-                    "verdict_reason": evidence_pack.verdict_reason,
-                }
-
-                # Step 5: Review
-                if success:
-                    review_result = apply_review_policy(
+                try:
+                    evidence_pack = run_prove(
                         db=db,
-                        task=task,
                         run=run,
-                        evidence_pack=evidence_pack,
-                        actor_id="claude-code",
-                        trace_id=task.trace_id,
+                        task=task,
+                        store=store,
+                        prover_id="claude-code-mcp",
                     )
-                    response["review"] = review_result
-                    # Refresh run status after review policy
-                    db.refresh(run)
-                    response["run_status"] = run.status
+                    response["evidence_pack"] = {
+                        "id": evidence_pack.id,
+                        "verdict": evidence_pack.verdict,
+                        "verdict_reason": evidence_pack.verdict_reason,
+                    }
+
+                    # Step 5: Review
+                    if success:
+                        review_result = apply_review_policy(
+                            db=db,
+                            task=task,
+                            run=run,
+                            evidence_pack=evidence_pack,
+                            actor_id="claude-code",
+                            trace_id=task.trace_id,
+                        )
+                        response["review"] = review_result
+                        # Refresh run status after review policy
+                        db.refresh(run)
+                        response["run_status"] = run.status
+                except Exception as prove_exc:
+                    logger.warning(
+                        "Prove/review failed for run %s: %s",
+                        run_id,
+                        prove_exc,
+                    )
+                    response["prove_error"] = str(prove_exc)
 
             # Clean up active claim
             _active_claims.pop(task_id, None)
@@ -828,22 +844,27 @@ def jct_get_run(run_id: str) -> str:
 @server.tool(
     name="jct_get_evidence",
     description=(
-        "Get the evidence pack for a run. Shows the verdict (pass/fail/partial), "
-        "criteria evaluations, collected evidence, and any missing items."
+        "Get the evidence pack by run ID or evidence pack ID. "
+        "Shows the verdict (pass/fail/partial), criteria evaluations, "
+        "collected evidence, and any missing items."
     ),
 )
 def jct_get_evidence(run_id: str) -> str:
-    """Get evidence pack for a run."""
+    """Get evidence pack by run_id or evidence_pack_id."""
     db = _get_db()
     try:
         from devops_control_tower.cwom.services import EvidencePackService
 
         svc = EvidencePackService(db)
+        # Try as run_id first, then fall back to direct evidence pack ID
         ep = svc.get_for_run(run_id)
+        if not ep:
+            ep = svc.get(run_id)
         if not ep:
             return _error(
                 "EVIDENCE_NOT_FOUND",
-                f"No evidence pack found for run '{run_id}'.",
+                f"No evidence pack found for '{run_id}' "
+                "(searched by run ID and evidence pack ID).",
             )
         return _success(evidence_pack=ep.to_dict())
     except Exception as exc:
@@ -1160,6 +1181,10 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stderr,
     )
+    # Re-read settings from current process env (MCP config sets env vars)
+    from devops_control_tower.config import reset_settings
+
+    reset_settings()
     server.run(transport="stdio")
 
 

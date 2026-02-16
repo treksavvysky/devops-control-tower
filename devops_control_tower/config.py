@@ -107,5 +107,20 @@ settings = Settings()
 
 
 def get_settings() -> Settings:
-    """Get application settings."""
+    """Get application settings.
+
+    Returns the module-level ``settings`` instance. To override in tests,
+    patch ``config.settings`` directly.
+    """
+    return settings
+
+
+def reset_settings() -> Settings:
+    """Force re-creation of settings from current environment.
+
+    Useful when environment variables change after initial import
+    (e.g., in MCP server processes).
+    """
+    global settings
+    settings = Settings()
     return settings
