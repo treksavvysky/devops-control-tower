@@ -25,22 +25,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Get the current database dialect for conditional logic
-    bind = op.get_bind()
-    dialect = bind.dialect.name
-
     # ===========================================
     # 1. Create events table
     # ===========================================
-    # Create PostgreSQL enum types (no-op for SQLite, which uses CHECK constraints)
-    if dialect == "postgresql":
-        op.execute(
-            "CREATE TYPE IF NOT EXISTS event_priority AS ENUM ('low', 'medium', 'high', 'critical')"
-        )
-        op.execute(
-            "CREATE TYPE IF NOT EXISTS event_status AS ENUM ('pending', 'processing', 'completed', 'failed')"
-        )
-
+    # Enum types are created automatically by SQLAlchemy's create_table
     op.create_table(
         "events",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -84,11 +72,6 @@ def upgrade() -> None:
     # ===========================================
     # 2. Create workflows table
     # ===========================================
-    if dialect == "postgresql":
-        op.execute(
-            "CREATE TYPE IF NOT EXISTS workflow_status AS ENUM ('idle', 'running', 'completed', 'failed', 'cancelled')"
-        )
-
     op.create_table(
         "workflows",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -129,11 +112,6 @@ def upgrade() -> None:
     # ===========================================
     # 3. Create agents table
     # ===========================================
-    if dialect == "postgresql":
-        op.execute(
-            "CREATE TYPE IF NOT EXISTS agent_status AS ENUM ('inactive', 'starting', 'running', 'stopping', 'error')"
-        )
-
     op.create_table(
         "agents",
         sa.Column("id", sa.String(length=36), primary_key=True),

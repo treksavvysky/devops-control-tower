@@ -20,19 +20,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create verdict enum
+    bind = op.get_bind()
+
+    # Verdict enum - created automatically by create_table below
     verdict_enum = sa.Enum(
         "pass", "fail", "partial", "pending",
-        name="cwom_verdict"
+        name="cwom_verdict",
     )
-    verdict_enum.create(op.get_bind(), checkfirst=True)
 
-    # Create criterion status enum
+    # Criterion status enum - not used in table columns but needed by app code
     criterion_status_enum = sa.Enum(
         "satisfied", "not_satisfied", "unverified", "skipped",
-        name="cwom_criterion_status"
+        name="cwom_criterion_status",
     )
-    criterion_status_enum.create(op.get_bind(), checkfirst=True)
+    criterion_status_enum.create(bind, checkfirst=True)
 
     # Create evidence_packs table
     op.create_table(
@@ -57,7 +58,7 @@ def upgrade() -> None:
 
         # Evaluation details
         sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("evaluated_by_kind", sa.Enum("human", "agent", "system", name="cwom_actor_kind", create_constraint=False), nullable=False),
+        sa.Column("evaluated_by_kind", sa.Enum("human", "agent", "system", name="cwom_actor_kind", create_type=False), nullable=False),
         sa.Column("evaluated_by_id", sa.String(128), nullable=False),
         sa.Column("evaluated_by_display", sa.String(256), nullable=True),
 

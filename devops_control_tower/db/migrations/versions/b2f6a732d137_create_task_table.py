@@ -18,23 +18,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Get the current database dialect for conditional logic
-    bind = op.get_bind()
-    dialect = bind.dialect.name
-
-    # Create PostgreSQL enum types (no-op for SQLite, which uses CHECK constraints)
-    if dialect == "postgresql":
-        op.execute(
-            "CREATE TYPE requester_kind AS ENUM ('human', 'agent', 'system')"
-        )
-        op.execute(
-            "CREATE TYPE operation_type AS ENUM ('code_change', 'docs', 'analysis', 'ops')"
-        )
-        op.execute(
-            "CREATE TYPE task_status AS ENUM ('pending', 'queued', 'running', 'completed', 'failed', 'cancelled')"
-        )
-
     # Create tasks table
+    # Enum types are auto-created by SQLAlchemy's create_table on Postgres
     # Use String(36) for UUID to be portable across PostgreSQL and SQLite
     op.create_table(
         "tasks",

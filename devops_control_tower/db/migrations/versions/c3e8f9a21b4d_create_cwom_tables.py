@@ -27,59 +27,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ==========================================================================
-    # Create CWOM Enums (PostgreSQL only - SQLite uses String columns)
-    # ==========================================================================
+    # Enum types are auto-created by SQLAlchemy's create_table on Postgres.
+    # For reused enums (cwom_status), second usage must set create_type=False.
+
+    # Pre-create cwom_object_kind (not used in any create_table column, only in code)
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        op.execute(
-            """CREATE TYPE cwom_object_kind AS ENUM (
-                'Repo', 'Issue', 'ContextPacket', 'Run', 'Artifact',
-                'ConstraintSnapshot', 'DoctrineRef'
-            )"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_status AS ENUM (
-                'planned', 'ready', 'running', 'blocked', 'done', 'failed', 'canceled'
-            )"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_issue_type AS ENUM (
-                'feature', 'bug', 'chore', 'research', 'ops', 'doc', 'incident'
-            )"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_priority AS ENUM ('P0', 'P1', 'P2', 'P3', 'P4')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_run_mode AS ENUM ('human', 'agent', 'hybrid', 'system')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_artifact_type AS ENUM (
-                'code_patch', 'commit', 'pr', 'build', 'container_image',
-                'doc', 'report', 'dataset', 'log', 'trace', 'binary', 'link'
-            )"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_verification_status AS ENUM ('unverified', 'passed', 'failed')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_doctrine_type AS ENUM (
-                'principle', 'policy', 'procedure', 'heuristic', 'pattern'
-            )"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_doctrine_priority AS ENUM ('must', 'should', 'may')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_visibility AS ENUM ('public', 'private', 'internal')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_actor_kind AS ENUM ('human', 'agent', 'system')"""
-        )
-        op.execute(
-            """CREATE TYPE cwom_constraint_scope AS ENUM ('personal', 'repo', 'org', 'system', 'run')"""
-        )
+        sa.Enum(
+            'Repo', 'Issue', 'ContextPacket', 'Run', 'Artifact',
+            'ConstraintSnapshot', 'DoctrineRef',
+            name='cwom_object_kind'
+        ).create(bind, checkfirst=True)
+        sa.Enum(
+            'unverified', 'passed', 'failed',
+            name='cwom_verification_status'
+        ).create(bind, checkfirst=True)
 
     # ==========================================================================
     # Create CWOM Repos Table
@@ -272,7 +234,7 @@ def upgrade() -> None:
         sa.Column("repo_role", sa.String(64), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("planned", "ready", "running", "blocked", "done", "failed", "canceled", name="cwom_status"),
+            sa.Enum("planned", "ready", "running", "blocked", "done", "failed", "canceled", name="cwom_status", create_type=False),
             nullable=False,
             server_default="planned",
         ),

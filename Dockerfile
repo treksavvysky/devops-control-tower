@@ -12,11 +12,7 @@ RUN apt-get update && apt-get install -y \
 # 1) Copy metadata + code
 COPY pyproject.toml README.md ./
 COPY devops_control_tower ./devops_control_tower
-# (optional, if they exist)
-# COPY scripts ./scripts
-# COPY alembic ./alembic
-# (optional but sensible)
-COPY migrations ./migrations
+# Migrations live inside devops_control_tower/db/migrations/ (already copied above)
 COPY alembic.ini ./
 # 2) Install the package
 RUN pip install --no-cache-dir -e .

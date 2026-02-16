@@ -25,12 +25,11 @@ def upgrade() -> None:
     if bind.dialect.name == "postgresql":
         op.execute("ALTER TYPE cwom_status ADD VALUE IF NOT EXISTS 'under_review'")
 
-    # Create review decision status enum
+    # Review decision status enum - created automatically by create_table below
     review_decision_status_enum = sa.Enum(
         "approved", "rejected", "needs_changes",
-        name="cwom_review_decision_status"
+        name="cwom_review_decision_status",
     )
-    review_decision_status_enum.create(bind, checkfirst=True)
 
     # Create review_decisions table
     op.create_table(
@@ -55,7 +54,7 @@ def upgrade() -> None:
         sa.Column("for_issue_role", sa.String(64), nullable=True),
 
         # Reviewer (Actor denormalized)
-        sa.Column("reviewer_kind", sa.Enum("human", "agent", "system", name="cwom_actor_kind", create_constraint=False), nullable=False),
+        sa.Column("reviewer_kind", sa.Enum("human", "agent", "system", name="cwom_actor_kind", create_type=False), nullable=False),
         sa.Column("reviewer_id", sa.String(128), nullable=False),
         sa.Column("reviewer_display", sa.String(256), nullable=True),
 
