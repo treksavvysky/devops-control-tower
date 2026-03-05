@@ -175,3 +175,11 @@ class TestGptOpenApiSpec:
             response = client.get("/openapi-gpt.json")
             spec = response.json()
             assert spec["servers"][0]["url"] == "https://api.example.com"
+
+    def test_spec_server_url_query_param_override(self, client):
+        """?server= query param overrides the configured server URL."""
+        response = client.get(
+            "/openapi-gpt.json?server=https://custom.example.com"
+        )
+        spec = response.json()
+        assert spec["servers"][0]["url"] == "https://custom.example.com"

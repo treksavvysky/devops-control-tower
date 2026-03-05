@@ -25,13 +25,21 @@ _MAX_DESCRIPTION_LEN = 300
 _MAX_PARAM_DESCRIPTION_LEN = 700
 
 
-def build_gpt_openapi_spec(app: FastAPI) -> Dict[str, Any]:
+def build_gpt_openapi_spec(
+    app: FastAPI, server_url_override: str | None = None
+) -> Dict[str, Any]:
     """Build a filtered OpenAPI spec for ChatGPT Actions.
 
     Takes the full auto-generated spec from the FastAPI app, keeps only the
     task endpoints, injects the public server URL and bearer auth scheme.
+
+    Args:
+        app: The FastAPI application instance.
+        server_url_override: If provided, overrides JCT_API_BASE_URL as the
+            server URL in the spec. Useful via ``?server=https://...`` query param.
     """
     settings = get_settings()
+    server_url = server_url_override or settings.jct_api_base_url
 
     # Deep copy so we don't mutate the cached spec
     full_spec = copy.deepcopy(app.openapi())
@@ -46,7 +54,7 @@ def build_gpt_openapi_spec(app: FastAPI) -> Dict[str, Any]:
             ),
             "version": full_spec["info"]["version"],
         },
-        "servers": [{"url": settings.jct_api_base_url}],
+        "servers": [{"url": server_url}],
         "paths": {},
         "components": {},
     }

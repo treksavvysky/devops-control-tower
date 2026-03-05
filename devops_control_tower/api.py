@@ -105,9 +105,9 @@ app.include_router(cwom_router)
 
 
 @app.get("/openapi-gpt.json", tags=["system"], include_in_schema=False)
-async def gpt_openapi_spec():
+async def gpt_openapi_spec(server: Optional[str] = None):
     """OpenAPI spec filtered for ChatGPT Actions integration."""
-    return build_gpt_openapi_spec(app)
+    return build_gpt_openapi_spec(app, server_url_override=server)
 
 
 @app.get("/health", tags=["system"])

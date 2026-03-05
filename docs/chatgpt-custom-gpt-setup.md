@@ -34,7 +34,7 @@ curl https://api.yourdomain.com/openapi-gpt.json | python3 -m json.tool
 
 You should see a JSON document with:
 - `info.title`: "DevOps Control Tower - Task API"
-- `servers[0].url`: your `JCT_API_BASE_URL`
+- `servers[0].url`: your `JCT_API_BASE_URL` (or the `?server=` override if provided)
 - `paths`: only `/tasks/enqueue`, `/tasks`, `/tasks/{task_id}`
 - `components.securitySchemes.BearerAuth`
 
@@ -61,8 +61,12 @@ Copy the contents of [`docs/gpt-actions-instructions.md`](gpt-actions-instructio
    - **API Key**: paste your `JCT_API_KEY` value
 3. Under **Schema**, click **Import from URL** and enter:
    ```
-   https://api.yourdomain.com/openapi-gpt.json
+   https://api.yourdomain.com/openapi-gpt.json?server=https://api.yourdomain.com
    ```
+   The `?server=` parameter sets the server URL inside the spec, ensuring ChatGPT
+   sends requests to the correct host. This overrides the `JCT_API_BASE_URL` env var.
+   You can also omit it if `JCT_API_BASE_URL` is already set correctly on the server.
+
    Alternatively, copy the JSON from that URL and paste it into the schema editor.
 4. You should see three actions detected:
    - `enqueueTask` - Submit a task for execution
@@ -98,7 +102,13 @@ python -m devops_control_tower.main
 ngrok http 8000
 ```
 
-Then set `JCT_API_BASE_URL` to the ngrok HTTPS URL (e.g. `https://abc123.ngrok-free.app`) and restart JCT. Update the GPT action schema URL accordingly.
+Then import the schema in the GPT editor using the `?server=` parameter:
+
+```
+https://abc123.ngrok-free.app/openapi-gpt.json?server=https://abc123.ngrok-free.app
+```
+
+This avoids needing to set `JCT_API_BASE_URL` on the server — the query parameter injects the correct server URL directly into the spec.
 
 Note: ngrok URLs change each time you restart the tunnel (unless you have a paid ngrok plan with a fixed domain), so you'll need to re-import the schema in the GPT editor.
 
@@ -107,7 +117,7 @@ Note: ngrok URLs change each time you restart the tunnel (unless you have a paid
 | Resource | Location |
 |----------|----------|
 | GPT system prompt / instructions | [`docs/gpt-actions-instructions.md`](gpt-actions-instructions.md) |
-| OpenAPI spec endpoint | `GET /openapi-gpt.json` |
+| OpenAPI spec endpoint | `GET /openapi-gpt.json[?server=URL]` |
 | Auth dependency | `devops_control_tower/auth.py` |
 | Spec builder | `devops_control_tower/gpt_openapi.py` |
 | Config settings | `JCT_API_KEY`, `JCT_API_BASE_URL` in `devops_control_tower/config.py` |
