@@ -381,6 +381,29 @@ python -m devops_control_tower.worker --poll-interval 10 --executor stub
 
 v0 marks acceptance criteria as "unverified" - LLM evaluation comes in v1.
 
+## ChatGPT Actions Integration
+
+Three task endpoints are exposed for ChatGPT custom GPTs:
+
+| Endpoint | operationId | Description |
+|----------|-------------|-------------|
+| `POST /tasks/enqueue` | `enqueueTask` | Submit a task |
+| `GET /tasks/{id}` | `getTask` | Get task by ID |
+| `GET /tasks` | `listTasks` | List tasks with filters |
+
+**Auth:** Set `JCT_API_KEY` to enable bearer token auth. Leave unset for no auth.
+
+**OpenAPI Spec:** `GET /openapi-gpt.json` returns a filtered spec for ChatGPT Actions.
+
+**GPT Instructions:** See `docs/gpt-actions-instructions.md` for the custom GPT system prompt.
+
+**Setup in ChatGPT:**
+1. Deploy the API to a public HTTPS endpoint
+2. Set `JCT_API_KEY` and `JCT_API_BASE_URL` environment variables
+3. In the GPT builder, import the schema from `https://your-domain/openapi-gpt.json`
+4. Set authentication to "API Key" with "Bearer" type, paste the key
+5. Copy contents of `docs/gpt-actions-instructions.md` into the GPT's instructions
+
 ## JCT MCP Server
 
 The MCP server lets Claude Code act as a real executor — claiming tasks, doing work with native tools, and reporting results back through MCP tool calls. This eliminates subprocess management, prompt synthesis, and output parsing.

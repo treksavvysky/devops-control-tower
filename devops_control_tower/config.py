@@ -84,6 +84,18 @@ class Settings(BaseSettings):
         description="Number of tasks to claim per poll cycle.",
     )
 
+    # ChatGPT Actions Integration
+    jct_api_key: Optional[str] = Field(
+        default=None,
+        env="JCT_API_KEY",
+        description="Static API key for external integrations (ChatGPT Actions). If unset, auth is disabled.",
+    )
+    jct_api_base_url: str = Field(
+        default="http://localhost:8000",
+        env="JCT_API_BASE_URL",
+        description="Public base URL for OpenAPI spec (used by ChatGPT Actions).",
+    )
+
     # Review Configuration (Step 5: Review → Merge Gate)
     jct_review_auto_approve: bool = Field(
         default=False,

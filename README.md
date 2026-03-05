@@ -211,7 +211,13 @@ to the desired connection string (such as
 running migrations. Alembic automatically rewrites async drivers to synchronous
 ones during migrations.
 
-## 🤝 Integration with Jules Dev Kit
+## ChatGPT Custom GPT Integration
+
+You can connect a ChatGPT custom GPT to the Control Tower so it can submit and track tasks via natural language. See the full setup guide:
+
+**[docs/chatgpt-custom-gpt-setup.md](docs/chatgpt-custom-gpt-setup.md)**
+
+## Integration with Jules Dev Kit
 
 The Control Tower is designed to leverage and enhance your existing Jules Dev Kit:
 

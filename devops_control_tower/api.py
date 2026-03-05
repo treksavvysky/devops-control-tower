@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import uuid
-from devops_control_tower import __version__
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
@@ -17,19 +16,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from devops_control_tower import __version__
+
+from .auth import verify_api_key
 from .config import get_settings
 from .core.enhanced_orchestrator import EnhancedOrchestrator
-from .data.models.events import Event, EventPriority, EventTypes
-from .db.base import get_db, init_database
-from .db.services import ArtifactService, EventService, JobService, TaskService, WorkflowService
-from .db.audit_service import AuditService
-from .schemas.task_v1 import (
-    TaskCreateV1,
-    TaskCreateLegacyV1,
-)
-from .policy import PolicyError, evaluate as evaluate_policy
 from .cwom.routes import router as cwom_router
 from .cwom.task_adapter import task_to_cwom
+from .data.models.events import Event, EventPriority, EventTypes
+from .db.audit_service import AuditService
+from .db.base import get_db, init_database
+from .db.services import (
+    ArtifactService,
+    EventService,
+    JobService,
+    TaskService,
+    WorkflowService,
+)
+from .gpt_openapi import build_gpt_openapi_spec
+from .policy import PolicyError
+from .policy import evaluate as evaluate_policy
+from .schemas.task_v1 import TaskCreateLegacyV1, TaskCreateV1
 
 # Initialize structured logging
 logger = structlog.get_logger()
@@ -85,7 +92,9 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[
+        "*"
+    ],  # Must include https://web-sandbox.oaiusercontent.com for ChatGPT Actions
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,6 +102,12 @@ app.add_middleware(
 
 # Include CWOM routes
 app.include_router(cwom_router)
+
+
+@app.get("/openapi-gpt.json", tags=["system"], include_in_schema=False)
+async def gpt_openapi_spec():
+    """OpenAPI spec filtered for ChatGPT Actions integration."""
+    return build_gpt_openapi_spec(app)
 
 
 @app.get("/health", tags=["system"])
@@ -308,12 +323,18 @@ async def create_event(
 
 
 # Task Management Endpoints (JCT V1 Task Spec)
-@app.post("/tasks/enqueue")
+@app.post(
+    "/tasks/enqueue",
+    operation_id="enqueueTask",
+    tags=["Tasks"],
+    summary="Enqueue a task for execution",
+)
 async def enqueue_task(
     task_spec: TaskCreateV1 | TaskCreateLegacyV1,
     create_cwom: bool = True,
     x_trace_id: Optional[str] = Header(None, alias="X-Trace-Id"),
     db: Session = Depends(get_db),
+    _api_key: Optional[str] = Depends(verify_api_key),
 ):
     """
     Enqueue a task for execution.
@@ -356,13 +377,15 @@ async def enqueue_task(
         # Normalize: legacy → canonical (canonical should be preferred by union order)
         if isinstance(task_spec, TaskCreateLegacyV1):
             canonical_task = TaskCreateV1.model_validate(
-            task_spec.model_dump(exclude_none=True)
+                task_spec.model_dump(exclude_none=True)
             )
         else:
             canonical_task = task_spec
         normalized_task = evaluate_policy(canonical_task)
     except PolicyError as e:
-        logger.warning("policy_violation", trace_id=trace_id, code=e.code, message=e.message)
+        logger.warning(
+            "policy_violation", trace_id=trace_id, code=e.code, message=e.message
+        )
         raise HTTPException(
             status_code=422,
             detail=e.to_dict(),
@@ -482,7 +505,12 @@ async def enqueue_task(
         raise HTTPException(status_code=500, detail=f"Failed to enqueue task: {str(e)}")
 
 
-@app.get("/tasks")
+@app.get(
+    "/tasks",
+    operation_id="listTasks",
+    tags=["Tasks"],
+    summary="List tasks with filters",
+)
 async def list_tasks(
     status: Optional[str] = None,
     operation: Optional[str] = None,
@@ -491,6 +519,7 @@ async def list_tasks(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
+    _api_key: Optional[str] = Depends(verify_api_key),
 ) -> List[Dict[str, Any]]:
     """List tasks with optional filtering."""
     task_service = TaskService(db)
@@ -506,8 +535,17 @@ async def list_tasks(
     return [task.to_dict() for task in tasks]
 
 
-@app.get("/tasks/{task_id}")
-async def get_task(task_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+@app.get(
+    "/tasks/{task_id}",
+    operation_id="getTask",
+    tags=["Tasks"],
+    summary="Get a task by ID",
+)
+async def get_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    _api_key: Optional[str] = Depends(verify_api_key),
+) -> Dict[str, Any]:
     """Get a specific task by ID."""
     task_service = TaskService(db)
     task = task_service.get_task(task_id)
