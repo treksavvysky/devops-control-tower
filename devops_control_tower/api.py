@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import uuid
+from devops_control_tower import __version__
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
@@ -77,7 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="DevOps Control Tower",
     description="Centralized command center for AI-powered development operations",
-    version=importlib.metadata.version("devops-control-tower"),
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -131,7 +132,7 @@ def healthz(db: Session = Depends(get_db)) -> dict[str, Any]:
 @app.get("/version")
 def version() -> dict[str, str]:
     """Return the version of the application."""
-    return {"version": importlib.metadata.version("devops-control-tower")}
+    return {"version": __version__}
 
 
 @app.get("/status")
