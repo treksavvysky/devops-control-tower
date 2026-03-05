@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from ..db.audit_service import AuditService
 from ..db.cwom_models import (
     CWOMArtifactModel,
     CWOMConstraintSnapshotModel,
@@ -23,22 +24,21 @@ from ..db.cwom_models import (
     CWOMRepoModel,
     CWOMReviewDecisionModel,
     CWOMRunModel,
+    context_packet_doctrine_refs,
     issue_constraint_snapshots,
     issue_context_packets,
     issue_doctrine_refs,
     run_context_packets,
     run_doctrine_refs,
-    context_packet_doctrine_refs,
 )
-from ..db.audit_service import AuditService
+from .artifact import ArtifactCreate
+from .constraint_snapshot import ConstraintSnapshotCreate
+from .context_packet import ContextPacketCreate
+from .doctrine_ref import DoctrineRefCreate
+from .issue import IssueCreate
 from .primitives import generate_ulid, utc_now
 from .repo import RepoCreate
-from .issue import IssueCreate
-from .context_packet import ContextPacketCreate
-from .constraint_snapshot import ConstraintSnapshotCreate
-from .doctrine_ref import DoctrineRefCreate
 from .run import RunCreate, RunUpdate
-from .artifact import ArtifactCreate
 
 
 class ImmutabilityError(Exception):
@@ -47,7 +47,9 @@ class ImmutabilityError(Exception):
     def __init__(self, object_type: str, object_id: str):
         self.object_type = object_type
         self.object_id = object_id
-        self.message = f"{object_type} objects are immutable. Cannot modify {object_id}."
+        self.message = (
+            f"{object_type} objects are immutable. Cannot modify {object_id}."
+        )
         super().__init__(self.message)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -158,7 +160,9 @@ class IssueService:
             kind="Issue",
             trace_id=trace_id,
             repo_id=issue.repo.id,
-            repo_kind=issue.repo.kind.value if hasattr(issue.repo.kind, 'value') else str(issue.repo.kind),
+            repo_kind=issue.repo.kind.value
+            if hasattr(issue.repo.kind, "value")
+            else str(issue.repo.kind),
             repo_role=issue.repo.role,
             title=issue.title,
             description=issue.description,
@@ -168,7 +172,9 @@ class IssueService:
             assignees=[a.model_dump() for a in issue.assignees],
             watchers=[w.model_dump() for w in issue.watchers],
             acceptance=issue.acceptance.model_dump() if issue.acceptance else {},
-            relationships=issue.relationships.model_dump() if issue.relationships else {},
+            relationships=issue.relationships.model_dump()
+            if issue.relationships
+            else {},
             runs=[],
             tags=issue.tags,
             meta=issue.meta,
@@ -194,7 +200,9 @@ class IssueService:
 
     def get(self, issue_id: str) -> Optional[CWOMIssueModel]:
         """Get an Issue by ID with related objects."""
-        return self.db.query(CWOMIssueModel).filter(CWOMIssueModel.id == issue_id).first()
+        return (
+            self.db.query(CWOMIssueModel).filter(CWOMIssueModel.id == issue_id).first()
+        )
 
     def list(
         self,
@@ -381,7 +389,9 @@ class ContextPacketService:
             kind="ContextPacket",
             trace_id=trace_id,
             for_issue_id=packet.for_issue.id,
-            for_issue_kind=packet.for_issue.kind.value if hasattr(packet.for_issue.kind, 'value') else str(packet.for_issue.kind),
+            for_issue_kind=packet.for_issue.kind.value
+            if hasattr(packet.for_issue.kind, "value")
+            else str(packet.for_issue.kind),
             for_issue_role=packet.for_issue.role,
             version=packet.version,
             summary=packet.summary,
@@ -389,7 +399,9 @@ class ContextPacketService:
             assumptions=packet.assumptions,
             open_questions=packet.open_questions,
             instructions=packet.instructions,
-            constraint_snapshot_id=packet.constraint_snapshot.id if packet.constraint_snapshot else None,
+            constraint_snapshot_id=packet.constraint_snapshot.id
+            if packet.constraint_snapshot
+            else None,
             tags=packet.tags,
             meta=packet.meta,
             created_at=now,
@@ -486,10 +498,14 @@ class ConstraintSnapshotService:
             trace_id=trace_id,
             scope=snapshot.scope.value,
             captured_at=now,  # Always captured at creation time
-            owner_kind=snapshot.owner.actor_kind.value if hasattr(snapshot.owner.actor_kind, 'value') else str(snapshot.owner.actor_kind),
+            owner_kind=snapshot.owner.actor_kind.value
+            if hasattr(snapshot.owner.actor_kind, "value")
+            else str(snapshot.owner.actor_kind),
             owner_id=snapshot.owner.actor_id,
             owner_display=snapshot.owner.display,
-            constraints=snapshot.constraints.model_dump() if snapshot.constraints else {},
+            constraints=snapshot.constraints.model_dump()
+            if snapshot.constraints
+            else {},
             tags=snapshot.tags,
             meta=snapshot.meta,
         )
@@ -570,7 +586,9 @@ class DoctrineRefService:
             statement=doctrine.statement,
             rationale=doctrine.rationale,
             links=doctrine.links,
-            applicability=doctrine.applicability.model_dump() if doctrine.applicability else {},
+            applicability=doctrine.applicability.model_dump()
+            if doctrine.applicability
+            else {},
             tags=doctrine.tags,
             meta=doctrine.meta,
             created_at=now,
@@ -670,10 +688,14 @@ class RunService:
             kind="Run",
             trace_id=trace_id,
             for_issue_id=run.for_issue.id,
-            for_issue_kind=run.for_issue.kind.value if hasattr(run.for_issue.kind, 'value') else str(run.for_issue.kind),
+            for_issue_kind=run.for_issue.kind.value
+            if hasattr(run.for_issue.kind, "value")
+            else str(run.for_issue.kind),
             for_issue_role=run.for_issue.role,
             repo_id=run.repo.id,
-            repo_kind=run.repo.kind.value if hasattr(run.repo.kind, 'value') else str(run.repo.kind),
+            repo_kind=run.repo.kind.value
+            if hasattr(run.repo.kind, "value")
+            else str(run.repo.kind),
             repo_role=run.repo.role,
             status=status.value,
             mode=run.mode.value,
@@ -785,19 +807,23 @@ class RunService:
         # Update allowed fields
         # Use mode='json' to serialize datetime objects properly
         if update.status is not None:
-            run.status = update.status.value if hasattr(update.status, 'value') else str(update.status)
+            run.status = (
+                update.status.value
+                if hasattr(update.status, "value")
+                else str(update.status)
+            )
 
         if update.telemetry is not None:
-            run.telemetry = update.telemetry.model_dump(mode='json')
+            run.telemetry = update.telemetry.model_dump(mode="json")
 
         if update.cost is not None:
-            run.cost = update.cost.model_dump(mode='json')
+            run.cost = update.cost.model_dump(mode="json")
 
         if update.outputs is not None:
-            run.outputs = update.outputs.model_dump(mode='json')
+            run.outputs = update.outputs.model_dump(mode="json")
 
         if update.failure is not None:
-            run.failure = update.failure.model_dump(mode='json')
+            run.failure = update.failure.model_dump(mode="json")
 
         run.updated_at = datetime.now(timezone.utc)
 
@@ -851,10 +877,14 @@ class ArtifactService:
             kind="Artifact",
             trace_id=trace_id,
             produced_by_id=artifact.produced_by.id,
-            produced_by_kind=artifact.produced_by.kind.value if hasattr(artifact.produced_by.kind, 'value') else str(artifact.produced_by.kind),
+            produced_by_kind=artifact.produced_by.kind.value
+            if hasattr(artifact.produced_by.kind, "value")
+            else str(artifact.produced_by.kind),
             produced_by_role=artifact.produced_by.role,
             for_issue_id=artifact.for_issue.id,
-            for_issue_kind=artifact.for_issue.kind.value if hasattr(artifact.for_issue.kind, 'value') else str(artifact.for_issue.kind),
+            for_issue_kind=artifact.for_issue.kind.value
+            if hasattr(artifact.for_issue.kind, "value")
+            else str(artifact.for_issue.kind),
             for_issue_role=artifact.for_issue.role,
             type=artifact.type.value,
             title=artifact.title,
@@ -863,7 +893,9 @@ class ArtifactService:
             media_type=artifact.media_type,
             size_bytes=artifact.size_bytes,
             preview=artifact.preview,
-            verification=artifact.verification.model_dump() if artifact.verification else {},
+            verification=artifact.verification.model_dump()
+            if artifact.verification
+            else {},
             tags=artifact.tags,
             meta=artifact.meta,
             created_at=now,
@@ -1053,9 +1085,7 @@ class ReviewDecisionService:
         # Validate issue exists and is under_review
         issue_id = review_data["for_issue"]["id"]
         issue = (
-            self.db.query(CWOMIssueModel)
-            .filter(CWOMIssueModel.id == issue_id)
-            .first()
+            self.db.query(CWOMIssueModel).filter(CWOMIssueModel.id == issue_id).first()
         )
         if not issue:
             raise ValueError(f"Issue '{issue_id}' not found")
@@ -1066,11 +1096,7 @@ class ReviewDecisionService:
 
         # Get run
         run_id = review_data["for_run"]["id"]
-        run = (
-            self.db.query(CWOMRunModel)
-            .filter(CWOMRunModel.id == run_id)
-            .first()
-        )
+        run = self.db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
 
         now = datetime.now(timezone.utc)
         reviewer = review_data["reviewer"]
@@ -1176,9 +1202,7 @@ class ReviewDecisionService:
         """Get the ReviewDecision for an EvidencePack."""
         return (
             self.db.query(CWOMReviewDecisionModel)
-            .filter(
-                CWOMReviewDecisionModel.for_evidence_pack_id == evidence_pack_id
-            )
+            .filter(CWOMReviewDecisionModel.for_evidence_pack_id == evidence_pack_id)
             .first()
         )
 
@@ -1198,9 +1222,7 @@ class ReviewDecisionService:
                 CWOMReviewDecisionModel.for_evidence_pack_id == evidence_pack_id
             )
         if issue_id:
-            query = query.filter(
-                CWOMReviewDecisionModel.for_issue_id == issue_id
-            )
+            query = query.filter(CWOMReviewDecisionModel.for_issue_id == issue_id)
         if decision:
             query = query.filter(CWOMReviewDecisionModel.decision == decision)
 

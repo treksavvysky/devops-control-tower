@@ -34,7 +34,9 @@ def upgrade() -> None:
         sa.Column(
             "actor_kind",
             sa.Enum(
-                "human", "agent", "system",
+                "human",
+                "agent",
+                "system",
                 name="audit_actor_kind",
                 create_constraint=True,
             ),
@@ -45,7 +47,12 @@ def upgrade() -> None:
         sa.Column(
             "action",
             sa.Enum(
-                "created", "updated", "status_changed", "deleted", "linked", "unlinked",
+                "created",
+                "updated",
+                "status_changed",
+                "deleted",
+                "linked",
+                "unlinked",
                 name="audit_action",
                 create_constraint=True,
             ),

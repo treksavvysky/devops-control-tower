@@ -5,8 +5,8 @@ Database services for DevOps Control Tower.
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from uuid import UUID
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -15,12 +15,21 @@ from sqlalchemy.orm import Session
 @dataclass
 class TaskCreateResult:
     """Result of task creation, indicating if task was new or existing (idempotency)."""
+
     task: "TaskModel"
     created: bool  # True if newly created, False if existing (idempotency hit)
 
+
 from ..data.models.events import Event
-from ..schemas.task_v1 import TaskCreateV1, TaskCreateLegacyV1
-from .models import AgentModel, ArtifactModel, EventModel, JobModel, TaskModel, WorkflowModel
+from ..schemas.task_v1 import TaskCreateLegacyV1, TaskCreateV1
+from .models import (
+    AgentModel,
+    ArtifactModel,
+    EventModel,
+    JobModel,
+    TaskModel,
+    WorkflowModel,
+)
 
 
 class EventService:
@@ -344,9 +353,7 @@ class TaskService:
                 return None
         return self.db.query(TaskModel).filter(TaskModel.id == task_id).first()
 
-    def get_task_by_idempotency_key(
-        self, idempotency_key: str
-    ) -> Optional[TaskModel]:
+    def get_task_by_idempotency_key(self, idempotency_key: str) -> Optional[TaskModel]:
         """Get a task by idempotency key."""
         return (
             self.db.query(TaskModel)
@@ -376,10 +383,7 @@ class TaskService:
             query = query.filter(TaskModel.target_repo == target_repo)
 
         return (
-            query.order_by(desc(TaskModel.created_at))
-            .offset(offset)
-            .limit(limit)
-            .all()
+            query.order_by(desc(TaskModel.created_at)).offset(offset).limit(limit).all()
         )
 
     def update_task_status(
@@ -443,11 +447,7 @@ class TaskService:
 
     def get_task_by_trace_id(self, trace_id: str) -> Optional[TaskModel]:
         """Get a task by trace_id (Sprint-0)."""
-        return (
-            self.db.query(TaskModel)
-            .filter(TaskModel.trace_id == trace_id)
-            .first()
-        )
+        return self.db.query(TaskModel).filter(TaskModel.trace_id == trace_id).first()
 
     def get_tasks_by_trace_id(self, trace_id: str) -> List[TaskModel]:
         """Get all tasks with a given trace_id (Sprint-0)."""
@@ -681,9 +681,7 @@ class ArtifactService:
     def get_artifact(self, artifact_id: str) -> Optional[ArtifactModel]:
         """Get an artifact by ID."""
         return (
-            self.db.query(ArtifactModel)
-            .filter(ArtifactModel.id == artifact_id)
-            .first()
+            self.db.query(ArtifactModel).filter(ArtifactModel.id == artifact_id).first()
         )
 
     def get_artifacts_by_task(self, task_id: str) -> List[ArtifactModel]:
@@ -713,9 +711,7 @@ class ArtifactService:
             .all()
         )
 
-    def get_artifacts_by_kind(
-        self, task_id: str, kind: str
-    ) -> List[ArtifactModel]:
+    def get_artifacts_by_kind(self, task_id: str, kind: str) -> List[ArtifactModel]:
         """Get artifacts of a specific kind for a task."""
         return (
             self.db.query(ArtifactModel)

@@ -7,14 +7,15 @@ Verifies:
 - AuditService query methods (by entity, trace, actor, action)
 """
 
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from devops_control_tower.db.base import Base
 from devops_control_tower.db.audit_models import AuditLogModel
 from devops_control_tower.db.audit_service import AuditService
+from devops_control_tower.db.base import Base
 
 
 @pytest.fixture
@@ -35,9 +36,17 @@ class TestAuditLogModel:
         """Verify all required columns exist."""
         columns = {c.name for c in AuditLogModel.__table__.columns}
         required = {
-            "id", "ts", "actor_kind", "actor_id", "action",
-            "entity_kind", "entity_id", "before", "after",
-            "note", "trace_id"
+            "id",
+            "ts",
+            "actor_kind",
+            "actor_id",
+            "action",
+            "entity_kind",
+            "entity_id",
+            "before",
+            "after",
+            "note",
+            "trace_id",
         }
         assert required.issubset(columns)
 
@@ -117,9 +126,9 @@ class TestAuditServiceCreate:
         )
 
         # Query back
-        found = db_session.query(AuditLogModel).filter(
-            AuditLogModel.id == entry.id
-        ).first()
+        found = (
+            db_session.query(AuditLogModel).filter(AuditLogModel.id == entry.id).first()
+        )
 
         assert found is not None
         assert found.entity_kind == "Run"

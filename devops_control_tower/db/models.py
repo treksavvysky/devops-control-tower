@@ -108,8 +108,13 @@ class TaskModel(Base):
     # Status tracking
     status = Column(
         Enum(
-            "pending", "queued", "running", "completed", "failed", "cancelled",
-            name="task_status"
+            "pending",
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            name="task_status",
         ),
         nullable=False,
         default="pending",
@@ -169,7 +174,9 @@ class TaskModel(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "queued_at": self.queued_at.isoformat() if self.queued_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "assigned_to": self.assigned_to,
             "result": self.result,
             "error": self.error,
@@ -421,10 +428,7 @@ class JobModel(Base):
 
     # Status tracking
     status = Column(
-        Enum(
-            "pending", "claimed", "running", "completed", "failed",
-            name="job_status"
-        ),
+        Enum("pending", "claimed", "running", "completed", "failed", name="job_status"),
         nullable=False,
         default="pending",
         index=True,
@@ -445,9 +449,7 @@ class JobModel(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Indexes
-    __table_args__ = (
-        Index("ix_jobs_status_created", "status", "created_at"),
-    )
+    __table_args__ = (Index("ix_jobs_status_created", "status", "created_at"),)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary."""
@@ -459,7 +461,9 @@ class JobModel(Base):
             "worker_id": self.worker_id,
             "claimed_at": self.claimed_at.isoformat() if self.claimed_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "result": self.result,
             "error": self.error,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -487,19 +491,18 @@ class ArtifactModel(Base):
 
     # Artifact type
     kind = Column(
-        Enum(
-            "log", "diff", "report", "file", "metric", "error",
-            name="artifact_kind"
-        ),
+        Enum("log", "diff", "report", "file", "metric", "error", name="artifact_kind"),
         nullable=False,
         default="log",
         index=True,
     )
 
     # Reference to actual content
-    uri = Column(String(1024), nullable=True)  # External reference (S3, file path, etc.)
-    ref = Column(String(512), nullable=True)   # Internal reference
-    content = Column(Text, nullable=True)       # Inline content for small artifacts
+    uri = Column(
+        String(1024), nullable=True
+    )  # External reference (S3, file path, etc.)
+    ref = Column(String(512), nullable=True)  # Internal reference
+    content = Column(Text, nullable=True)  # Inline content for small artifacts
 
     # Content metadata
     content_type = Column(String(100), nullable=True)
@@ -511,9 +514,7 @@ class ArtifactModel(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
 
     # Indexes
-    __table_args__ = (
-        Index("ix_artifacts_created_at", "created_at"),
-    )
+    __table_args__ = (Index("ix_artifacts_created_at", "created_at"),)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary."""

@@ -43,7 +43,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "claimed", "running", "completed", "failed",
+                "pending",
+                "claimed",
+                "running",
+                "completed",
+                "failed",
                 name="job_status",
                 create_constraint=True,
             ),
@@ -81,7 +85,12 @@ def upgrade() -> None:
         sa.Column(
             "kind",
             sa.Enum(
-                "log", "diff", "report", "file", "metric", "error",
+                "log",
+                "diff",
+                "report",
+                "file",
+                "metric",
+                "error",
                 name="artifact_kind",
                 create_constraint=True,
             ),

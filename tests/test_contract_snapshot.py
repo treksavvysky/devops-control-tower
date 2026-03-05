@@ -163,15 +163,15 @@ class TestContractSnapshot:
 
         defaults = Constraints()
 
-        assert defaults.time_budget_seconds == 900, (
-            "BREAKING CHANGE: Default time_budget_seconds changed from 900"
-        )
-        assert defaults.allow_network is False, (
-            "BREAKING CHANGE: Default allow_network changed from False"
-        )
-        assert defaults.allow_secrets is False, (
-            "BREAKING CHANGE: Default allow_secrets changed from False"
-        )
+        assert (
+            defaults.time_budget_seconds == 900
+        ), "BREAKING CHANGE: Default time_budget_seconds changed from 900"
+        assert (
+            defaults.allow_network is False
+        ), "BREAKING CHANGE: Default allow_network changed from False"
+        assert (
+            defaults.allow_secrets is False
+        ), "BREAKING CHANGE: Default allow_secrets changed from False"
 
     def test_target_defaults(self):
         """Target must have sensible V1 defaults."""
@@ -180,9 +180,7 @@ class TestContractSnapshot:
         # repo is required, so we must provide it
         target = Target(repo="test/repo")
 
-        assert target.ref == "main", (
-            "BREAKING CHANGE: Default target.ref changed from 'main'"
-        )
-        assert target.path == "", (
-            "BREAKING CHANGE: Default target.path changed from ''"
-        )
+        assert (
+            target.ref == "main"
+        ), "BREAKING CHANGE: Default target.ref changed from 'main'"
+        assert target.path == "", "BREAKING CHANGE: Default target.path changed from ''"

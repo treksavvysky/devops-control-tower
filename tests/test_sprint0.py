@@ -19,8 +19,7 @@ import pytest
 
 from devops_control_tower.db.models import ArtifactModel, JobModel, TaskModel
 from devops_control_tower.db.services import ArtifactService, JobService, TaskService
-from devops_control_tower.worker import Worker, StubActionRunner
-
+from devops_control_tower.worker import StubActionRunner, Worker
 
 # Note: db_session and client fixtures are provided by conftest.py
 
@@ -76,10 +75,13 @@ class TestEnqueueWithTraceId:
     """Test POST /tasks/enqueue with trace_id (Sprint-0 acceptance criteria #1, #2)."""
 
     @patch("devops_control_tower.api.evaluate_policy")
-    def test_enqueue_returns_trace_id(self, mock_policy, client, valid_task_spec, db_session):
+    def test_enqueue_returns_trace_id(
+        self, mock_policy, client, valid_task_spec, db_session
+    ):
         """Verify POST /tasks/enqueue returns a trace_id."""
         # Mock policy to return the task as-is (normalized)
         from devops_control_tower.schemas.task_v1 import TaskCreateLegacyV1
+
         mock_policy.return_value = TaskCreateLegacyV1(**valid_task_spec)
 
         response = client.post("/tasks/enqueue", json=valid_task_spec)
@@ -92,9 +94,12 @@ class TestEnqueueWithTraceId:
         uuid.UUID(data["trace_id"])
 
     @patch("devops_control_tower.api.evaluate_policy")
-    def test_enqueue_accepts_custom_trace_id(self, mock_policy, client, valid_task_spec, db_session):
+    def test_enqueue_accepts_custom_trace_id(
+        self, mock_policy, client, valid_task_spec, db_session
+    ):
         """Verify caller-supplied X-Trace-Id header is used."""
         from devops_control_tower.schemas.task_v1 import TaskCreateLegacyV1
+
         mock_policy.return_value = TaskCreateLegacyV1(**valid_task_spec)
 
         custom_trace_id = str(uuid.uuid4())
@@ -109,9 +114,12 @@ class TestEnqueueWithTraceId:
         assert data["trace_id"] == custom_trace_id
 
     @patch("devops_control_tower.api.evaluate_policy")
-    def test_enqueue_stores_trace_id_in_db(self, mock_policy, client, valid_task_spec, db_session):
+    def test_enqueue_stores_trace_id_in_db(
+        self, mock_policy, client, valid_task_spec, db_session
+    ):
         """Verify trace_id is stored in the tasks table."""
         from devops_control_tower.schemas.task_v1 import TaskCreateLegacyV1
+
         mock_policy.return_value = TaskCreateLegacyV1(**valid_task_spec)
 
         response = client.post("/tasks/enqueue", json=valid_task_spec)
@@ -129,9 +137,12 @@ class TestEnqueueWithTraceId:
         assert task.trace_id == trace_id
 
     @patch("devops_control_tower.api.evaluate_policy")
-    def test_task_includes_trace_id_in_response(self, mock_policy, client, valid_task_spec, db_session):
+    def test_task_includes_trace_id_in_response(
+        self, mock_policy, client, valid_task_spec, db_session
+    ):
         """Verify task dict in response includes trace_id."""
         from devops_control_tower.schemas.task_v1 import TaskCreateLegacyV1
+
         mock_policy.return_value = TaskCreateLegacyV1(**valid_task_spec)
 
         response = client.post("/tasks/enqueue", json=valid_task_spec)

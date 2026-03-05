@@ -19,6 +19,11 @@ Causality Chain:
 Spec: docs/cwom/cwom-spec-v0.1.md
 """
 
+from .artifact import Artifact, ArtifactCreate
+from .constraint_snapshot import ConstraintSnapshot, ConstraintSnapshotCreate
+from .context_packet import ContextPacket, ContextPacketCreate
+from .doctrine_ref import DoctrineRef, DoctrineRefCreate
+
 # Enums
 from .enums import (
     ActorKind,
@@ -41,6 +46,13 @@ from .enums import (
     VerificationStatus,
     Visibility,
 )
+from .evidence_pack import (
+    CriterionResult,
+    EvidenceItem,
+    EvidencePack,
+    EvidencePackCreate,
+)
+from .issue import Issue, IssueCreate
 
 # Primitives
 from .primitives import (
@@ -77,14 +89,8 @@ from .primitives import (
 
 # Object types
 from .repo import Repo, RepoCreate
-from .issue import Issue, IssueCreate
-from .context_packet import ContextPacket, ContextPacketCreate
-from .constraint_snapshot import ConstraintSnapshot, ConstraintSnapshotCreate
-from .doctrine_ref import DoctrineRef, DoctrineRefCreate
+from .review_decision import CriterionOverride, ReviewDecision, ReviewDecisionCreate
 from .run import Run, RunCreate, RunUpdate
-from .artifact import Artifact, ArtifactCreate
-from .evidence_pack import EvidencePack, EvidencePackCreate, CriterionResult, EvidenceItem
-from .review_decision import ReviewDecision, ReviewDecisionCreate, CriterionOverride
 
 __version__ = "0.1"
 

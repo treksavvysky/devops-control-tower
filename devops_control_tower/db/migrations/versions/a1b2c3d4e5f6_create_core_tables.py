@@ -37,14 +37,28 @@ def upgrade() -> None:
         sa.Column("data", sa.JSON, nullable=False, server_default="{}"),
         sa.Column(
             "priority",
-            sa.Enum("low", "medium", "high", "critical", name="event_priority", create_constraint=False),
+            sa.Enum(
+                "low",
+                "medium",
+                "high",
+                "critical",
+                name="event_priority",
+                create_constraint=False,
+            ),
             nullable=False,
             server_default="medium",
         ),
         sa.Column("tags", sa.JSON, nullable=False, server_default="{}"),
         sa.Column(
             "status",
-            sa.Enum("pending", "processing", "completed", "failed", name="event_status", create_constraint=False),
+            sa.Enum(
+                "pending",
+                "processing",
+                "completed",
+                "failed",
+                name="event_status",
+                create_constraint=False,
+            ),
             nullable=False,
             server_default="pending",
         ),
@@ -82,7 +96,15 @@ def upgrade() -> None:
         sa.Column("steps", sa.JSON, nullable=False, server_default="[]"),
         sa.Column(
             "status",
-            sa.Enum("idle", "running", "completed", "failed", "cancelled", name="workflow_status", create_constraint=False),
+            sa.Enum(
+                "idle",
+                "running",
+                "completed",
+                "failed",
+                "cancelled",
+                name="workflow_status",
+                create_constraint=False,
+            ),
             nullable=False,
             server_default="idle",
         ),
@@ -122,12 +144,25 @@ def upgrade() -> None:
         sa.Column("capabilities", sa.JSON, nullable=False, server_default="[]"),
         sa.Column(
             "status",
-            sa.Enum("inactive", "starting", "running", "stopping", "error", name="agent_status", create_constraint=False),
+            sa.Enum(
+                "inactive",
+                "starting",
+                "running",
+                "stopping",
+                "error",
+                name="agent_status",
+                create_constraint=False,
+            ),
             nullable=False,
             server_default="inactive",
         ),
         sa.Column("last_heartbeat", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("health_status", sa.String(length=20), nullable=False, server_default="'unknown'"),
+        sa.Column(
+            "health_status",
+            sa.String(length=20),
+            nullable=False,
+            server_default="'unknown'",
+        ),
         sa.Column("health_details", sa.JSON, nullable=True),
         sa.Column("tasks_completed", sa.Integer, nullable=False, server_default="0"),
         sa.Column("tasks_failed", sa.Integer, nullable=False, server_default="0"),
@@ -142,7 +177,9 @@ def upgrade() -> None:
         sa.Column("last_activity_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("is_enabled", sa.Boolean, nullable=False, server_default="true"),
         sa.Column("auto_restart", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("max_concurrent_tasks", sa.Integer, nullable=False, server_default="5"),
+        sa.Column(
+            "max_concurrent_tasks", sa.Integer, nullable=False, server_default="5"
+        ),
         sa.Column("last_error", sa.Text, nullable=True),
         sa.Column("error_count", sa.Integer, nullable=False, server_default="0"),
         sa.UniqueConstraint("name", name="uq_agents_name"),
@@ -155,7 +192,9 @@ def upgrade() -> None:
     op.create_index("ix_agents_health_status", "agents", ["health_status"])
     op.create_index("ix_agents_is_enabled", "agents", ["is_enabled"])
     op.create_index("ix_agents_type_status", "agents", ["type", "status"])
-    op.create_index("ix_agents_health_enabled", "agents", ["health_status", "is_enabled"])
+    op.create_index(
+        "ix_agents_health_enabled", "agents", ["health_status", "is_enabled"]
+    )
     op.create_index("ix_agents_last_activity", "agents", ["last_activity_at"])
 
 

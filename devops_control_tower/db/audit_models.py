@@ -9,19 +9,10 @@ actor information, and trace context.
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    Enum,
-    Index,
-    String,
-    Text,
-)
+from sqlalchemy import JSON, Column, DateTime, Enum, Index, String, Text
 from sqlalchemy.sql import func
 
 from .base import Base
-
 
 # Audit actor kind enum (matches CWOM actor kinds)
 audit_actor_kind_enum = Enum(

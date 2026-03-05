@@ -8,15 +8,15 @@ import pytest
 from pydantic import ValidationError
 
 from devops_control_tower.cwom import (
-    ReviewDecision,
-    ReviewDecisionCreate,
-    CriterionOverride,
-    ReviewDecisionStatus,
-    CriterionStatus,
     Actor,
     ActorKind,
-    Ref,
+    CriterionOverride,
+    CriterionStatus,
     ObjectKind,
+    Ref,
+    ReviewDecision,
+    ReviewDecisionCreate,
+    ReviewDecisionStatus,
     Status,
 )
 

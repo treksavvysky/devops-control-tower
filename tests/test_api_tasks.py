@@ -211,9 +211,7 @@ class TestEnqueueAcceptAndNormalize:
 class TestEnqueueAllOperations:
     """Test that all valid operation types are accepted."""
 
-    @pytest.mark.parametrize(
-        "operation", ["code_change", "docs", "analysis", "ops"]
-    )
+    @pytest.mark.parametrize("operation", ["code_change", "docs", "analysis", "ops"])
     def test_accepts_all_valid_operations(self, operation):
         """All defined operation types should be accepted."""
         payload = make_valid_task_payload(

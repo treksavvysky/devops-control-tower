@@ -61,7 +61,8 @@ class ContextPacket(BaseModel):
 
     # CWOM references
     doctrine_refs: List[Ref] = Field(
-        default_factory=list, description="Doctrine references applicable to this context"
+        default_factory=list,
+        description="Doctrine references applicable to this context",
     )
     constraint_snapshot: Optional[Ref] = Field(
         None, description="Constraint snapshot pinned at packet creation"

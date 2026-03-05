@@ -6,57 +6,53 @@ and edge cases — all through the CWOM service layer against a real database.
 """
 
 import time
-
-import pytest
 from datetime import datetime, timezone
 
+import pytest
+
 from devops_control_tower.cwom import (
-    RepoCreate,
-    IssueCreate,
-    ContextPacketCreate,
-    ConstraintSnapshotCreate,
-    DoctrineRefCreate,
-    RunCreate,
-    RunUpdate,
-    ArtifactCreate,
     Actor,
     ActorKind,
-    Source,
-    Ref,
-    ObjectKind,
-    Executor,
-    IssueType,
-    Priority,
-    Status,
-    RunMode,
+    ArtifactCreate,
     ArtifactType,
-    ConstraintScope,
-    DoctrineType,
-    DoctrinePriority,
     Constraints,
-    RunInputs,
-    Telemetry,
+    ConstraintScope,
+    ConstraintSnapshotCreate,
+    ContextPacketCreate,
+    DoctrinePriority,
+    DoctrineRefCreate,
+    DoctrineType,
+    Executor,
     Failure,
     FailureCategory,
+    IssueCreate,
+    IssueType,
+    ObjectKind,
+    Priority,
+    Ref,
+    RepoCreate,
+    RunCreate,
+    RunInputs,
+    RunMode,
+    RunUpdate,
+    Source,
+    Status,
+    Telemetry,
     generate_ulid,
 )
 from devops_control_tower.cwom.services import (
-    RepoService,
-    IssueService,
-    ContextPacketService,
-    ConstraintSnapshotService,
-    DoctrineRefService,
-    RunService,
     ArtifactService,
+    ConstraintSnapshotService,
+    ContextPacketService,
+    DoctrineRefService,
     EvidencePackService,
+    IssueService,
+    RepoService,
     ReviewDecisionService,
-)
-from devops_control_tower.db.cwom_models import (
-    CWOMEvidencePackModel,
-    CWOMRepoModel,
+    RunService,
 )
 from devops_control_tower.db.audit_service import AuditService
-
+from devops_control_tower.db.cwom_models import CWOMEvidencePackModel, CWOMRepoModel
 
 # =============================================================================
 # Factory helpers — return Pydantic *Create schemas with unique identifiers
@@ -220,11 +216,13 @@ class TestRepoRoundTrip:
     def test_create_and_get_by_slug(self, db_session):
         svc = RepoService(db_session)
         slug = f"testorg/slug-test-{_next()}"
-        repo = svc.create(RepoCreate(
-            name="Slug Repo",
-            slug=slug,
-            source=Source(system="github", external_id=slug),
-        ))
+        repo = svc.create(
+            RepoCreate(
+                name="Slug Repo",
+                slug=slug,
+                source=Source(system="github", external_id=slug),
+            )
+        )
 
         fetched = svc.get_by_slug(slug)
         assert fetched is not None
@@ -621,9 +619,7 @@ class TestFullCausalityChain:
         snapshot = ConstraintSnapshotService(db).create(
             make_constraint_snapshot_create()
         )
-        packet = ContextPacketService(db).create(
-            make_context_packet_create(issue.id)
-        )
+        packet = ContextPacketService(db).create(make_context_packet_create(issue.id))
 
         # Link to issue
         IssueService(db).link_context_packet(issue.id, packet.id)
@@ -787,13 +783,21 @@ class TestFullCausalityChain:
 class TestImmutability:
     def test_context_packet_service_has_no_update(self, db_session):
         svc = ContextPacketService(db_session)
-        assert not hasattr(svc, "update"), "ContextPacketService should not have update()"
-        assert not hasattr(svc, "update_status"), "ContextPacketService should not have update_status()"
+        assert not hasattr(
+            svc, "update"
+        ), "ContextPacketService should not have update()"
+        assert not hasattr(
+            svc, "update_status"
+        ), "ContextPacketService should not have update_status()"
 
     def test_constraint_snapshot_service_has_no_update(self, db_session):
         svc = ConstraintSnapshotService(db_session)
-        assert not hasattr(svc, "update"), "ConstraintSnapshotService should not have update()"
-        assert not hasattr(svc, "update_status"), "ConstraintSnapshotService should not have update_status()"
+        assert not hasattr(
+            svc, "update"
+        ), "ConstraintSnapshotService should not have update()"
+        assert not hasattr(
+            svc, "update_status"
+        ), "ConstraintSnapshotService should not have update_status()"
 
     def test_context_packet_versioning(self, db_session):
         repo = RepoService(db_session).create(make_repo_create())

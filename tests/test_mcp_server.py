@@ -31,13 +31,13 @@ _test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
-_TestSession = sessionmaker(
-    autocommit=False, autoflush=False, bind=_test_engine
-)
+_TestSession = sessionmaker(autocommit=False, autoflush=False, bind=_test_engine)
 
 # Patch SessionLocal before importing anything that uses it
 db_base.SessionLocal = _TestSession
 
+
+import devops_control_tower.mcp as mcp_module
 
 # Now import MCP tools (after DB patch)
 from devops_control_tower.mcp import (
@@ -55,8 +55,6 @@ from devops_control_tower.mcp import (
     jct_report_artifact,
     jct_submit_review,
 )
-import devops_control_tower.mcp as mcp_module
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -66,9 +64,9 @@ import devops_control_tower.mcp as mcp_module
 @pytest.fixture(scope="session", autouse=True)
 def _create_tables():
     """Create all tables once."""
-    from devops_control_tower.db import models  # noqa: F401
-    from devops_control_tower.db import cwom_models  # noqa: F401
     from devops_control_tower.db import audit_models  # noqa: F401
+    from devops_control_tower.db import cwom_models  # noqa: F401
+    from devops_control_tower.db import models  # noqa: F401
 
     Base.metadata.create_all(bind=_test_engine)
     yield
@@ -104,9 +102,7 @@ def db(_patch_get_db) -> Session:
 def trace_dir():
     """Temporary trace directory."""
     with tempfile.TemporaryDirectory() as d:
-        with patch.dict(
-            os.environ, {"JCT_TRACE_ROOT": f"file://{d}"}
-        ):
+        with patch.dict(os.environ, {"JCT_TRACE_ROOT": f"file://{d}"}):
             # Reset cached settings
             from devops_control_tower import config as cfg_mod
 
@@ -576,15 +572,11 @@ class TestObservationTools:
         claim = json.loads(jct_claim_task(task_id))
         run_id = claim["run_id"]
 
-        result = json.loads(
-            jct_get_audit_trail(entity_kind="Run", entity_id=run_id)
-        )
+        result = json.loads(jct_get_audit_trail(entity_kind="Run", entity_id=run_id))
         assert result["success"] is True
         assert result["count"] >= 1
         # Should have at least the "created" audit entry
-        assert any(
-            e["action"] == "created" for e in result["entries"]
-        )
+        assert any(e["action"] == "created" for e in result["entries"])
 
 
 # ---------------------------------------------------------------------------
@@ -689,7 +681,5 @@ class TestFullWorkflow:
         evidence = json.loads(jct_get_evidence(run_id))
         assert evidence["success"] is True
 
-        audit = json.loads(
-            jct_get_audit_trail(entity_kind="Run", entity_id=run_id)
-        )
+        audit = json.loads(jct_get_audit_trail(entity_kind="Run", entity_id=run_id))
         assert audit["count"] >= 1

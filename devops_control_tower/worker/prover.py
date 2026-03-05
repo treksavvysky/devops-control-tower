@@ -28,15 +28,15 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from ..db.audit_service import AuditService
 from ..db.cwom_models import (
-    CWOMRunModel,
-    CWOMIssueModel,
+    CWOMArtifactModel,
     CWOMContextPacketModel,
     CWOMEvidencePackModel,
-    CWOMArtifactModel,
+    CWOMIssueModel,
+    CWOMRunModel,
 )
 from ..db.models import TaskModel
-from ..db.audit_service import AuditService
 from .storage import TraceStore, create_trace_store
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CriterionResult:
     """Result of evaluating a single acceptance criterion."""
+
     criterion: str
     index: int
     status: str  # "satisfied", "not_satisfied", "unverified", "skipped"
@@ -55,6 +56,7 @@ class CriterionResult:
 @dataclass
 class EvidenceItem:
     """An item of evidence collected."""
+
     requirement: str
     index: int
     found: bool
@@ -66,6 +68,7 @@ class EvidenceItem:
 @dataclass
 class ProofResult:
     """Result of the prove phase."""
+
     verdict: str  # "pass", "fail", "partial", "pending"
     verdict_reason: str
     criteria_results: List[CriterionResult]
@@ -159,9 +162,11 @@ class Prover:
             return task_meta["acceptance_criteria"]
 
         # Check context packet meta
-        context_packet = db.query(CWOMContextPacketModel).filter(
-            CWOMContextPacketModel.for_issue_id == run.for_issue_id
-        ).first()
+        context_packet = (
+            db.query(CWOMContextPacketModel)
+            .filter(CWOMContextPacketModel.for_issue_id == run.for_issue_id)
+            .first()
+        )
 
         if context_packet and context_packet.meta:
             meta = context_packet.meta
@@ -180,9 +185,11 @@ class Prover:
             return task_meta["evidence_requirements"]
 
         # Check context packet meta
-        context_packet = db.query(CWOMContextPacketModel).filter(
-            CWOMContextPacketModel.for_issue_id == run.for_issue_id
-        ).first()
+        context_packet = (
+            db.query(CWOMContextPacketModel)
+            .filter(CWOMContextPacketModel.for_issue_id == run.for_issue_id)
+            .first()
+        )
 
         if context_packet and context_packet.meta:
             meta = context_packet.meta
@@ -195,9 +202,11 @@ class Prover:
         self, db: Session, run: CWOMRunModel
     ) -> List[CWOMArtifactModel]:
         """Get all artifacts produced by this run."""
-        return db.query(CWOMArtifactModel).filter(
-            CWOMArtifactModel.produced_by_id == run.id
-        ).all()
+        return (
+            db.query(CWOMArtifactModel)
+            .filter(CWOMArtifactModel.produced_by_id == run.id)
+            .all()
+        )
 
     def _evaluate(
         self,
@@ -261,46 +270,56 @@ class Prover:
             # Check for type matches (e.g., "pytest output" -> "log" type)
             if not found_artifact:
                 if "test" in req_lower or "pytest" in req_lower:
-                    found_artifact = artifact_types.get("log") or artifact_types.get("trace")
+                    found_artifact = artifact_types.get("log") or artifact_types.get(
+                        "trace"
+                    )
                 elif "screenshot" in req_lower or "image" in req_lower:
                     found_artifact = artifact_types.get("binary")
                 elif "doc" in req_lower or "readme" in req_lower:
                     found_artifact = artifact_types.get("doc")
 
             if found_artifact:
-                evidence_collected.append(EvidenceItem(
-                    requirement=requirement,
-                    index=i,
-                    found=True,
-                    artifact_uri=found_artifact.uri,
-                    artifact_type=found_artifact.type,
-                    notes=f"Matched artifact: {found_artifact.title}",
-                ))
+                evidence_collected.append(
+                    EvidenceItem(
+                        requirement=requirement,
+                        index=i,
+                        found=True,
+                        artifact_uri=found_artifact.uri,
+                        artifact_type=found_artifact.type,
+                        notes=f"Matched artifact: {found_artifact.title}",
+                    )
+                )
                 checks_passed += 1
             else:
-                evidence_collected.append(EvidenceItem(
-                    requirement=requirement,
-                    index=i,
-                    found=False,
-                    notes="No matching artifact found",
-                ))
+                evidence_collected.append(
+                    EvidenceItem(
+                        requirement=requirement,
+                        index=i,
+                        found=False,
+                        notes="No matching artifact found",
+                    )
+                )
                 evidence_missing.append(requirement)
                 checks_failed += 1
 
         # Check 4: Acceptance criteria (v0: mark as unverified)
         for i, criterion in enumerate(acceptance_criteria):
-            criteria_results.append(CriterionResult(
-                criterion=criterion,
-                index=i,
-                status="unverified",
-                reason="v0: Automated verification not available. Requires LLM evaluation in v1.",
-            ))
+            criteria_results.append(
+                CriterionResult(
+                    criterion=criterion,
+                    index=i,
+                    status="unverified",
+                    reason="v0: Automated verification not available. Requires LLM evaluation in v1.",
+                )
+            )
             checks_skipped += 1
 
         # Determine verdict
         if not run_succeeded or has_failure:
             verdict = "fail"
-            verdict_reason = f"Run {'failed' if has_failure else 'did not complete successfully'}"
+            verdict_reason = (
+                f"Run {'failed' if has_failure else 'did not complete successfully'}"
+            )
             if has_failure and isinstance(run.failure, dict):
                 verdict_reason += f": {run.failure.get('message', 'Unknown error')}"
         elif evidence_missing:
@@ -310,7 +329,9 @@ class Prover:
             verdict = "pass"
             verdict_reason = "All automated checks passed"
             if checks_skipped > 0:
-                verdict_reason += f" ({checks_skipped} criteria require manual/LLM verification)"
+                verdict_reason += (
+                    f" ({checks_skipped} criteria require manual/LLM verification)"
+                )
 
         return ProofResult(
             verdict=verdict,
@@ -364,7 +385,9 @@ class Prover:
                 "reason": cr.reason,
                 "evidence_refs": cr.evidence_refs,
             }
-            store.write_json(f"evidence/criteria/criterion_{cr.index}.json", criterion_data)
+            store.write_json(
+                f"evidence/criteria/criterion_{cr.index}.json", criterion_data
+            )
 
         # Write collected evidence summary
         collected_data = {
@@ -384,13 +407,15 @@ class Prover:
         store.write_json("evidence/collected.json", collected_data)
 
         # Log event
-        store.append_event({
-            "event": "evidence_pack_created",
-            "verdict": result.verdict,
-            "checks_passed": result.checks_passed,
-            "checks_failed": result.checks_failed,
-            "checks_skipped": result.checks_skipped,
-        })
+        store.append_event(
+            {
+                "event": "evidence_pack_created",
+                "verdict": result.verdict,
+                "checks_passed": result.checks_passed,
+                "checks_failed": result.checks_failed,
+                "checks_skipped": result.checks_skipped,
+            }
+        )
 
         return f"{store.get_uri()}/evidence/"
 

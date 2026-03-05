@@ -34,13 +34,17 @@ def upgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         sa.Enum(
-            'Repo', 'Issue', 'ContextPacket', 'Run', 'Artifact',
-            'ConstraintSnapshot', 'DoctrineRef',
-            name='cwom_object_kind'
+            "Repo",
+            "Issue",
+            "ContextPacket",
+            "Run",
+            "Artifact",
+            "ConstraintSnapshot",
+            "DoctrineRef",
+            name="cwom_object_kind",
         ).create(bind, checkfirst=True)
         sa.Enum(
-            'unverified', 'passed', 'failed',
-            name='cwom_verification_status'
+            "unverified", "passed", "failed", name="cwom_verification_status"
         ).create(bind, checkfirst=True)
 
     # ==========================================================================
@@ -52,7 +56,9 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(20), nullable=False, server_default="Repo"),
         sa.Column("name", sa.String(256), nullable=False),
         sa.Column("slug", sa.String(256), nullable=False),
-        sa.Column("default_branch", sa.String(128), nullable=False, server_default="main"),
+        sa.Column(
+            "default_branch", sa.String(128), nullable=False, server_default="main"
+        ),
         sa.Column(
             "visibility",
             sa.Enum("public", "private", "internal", name="cwom_visibility"),
@@ -65,8 +71,18 @@ def upgrade() -> None:
         sa.Column("links", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("slug", name="uq_cwom_repos_slug"),
     )
@@ -81,13 +97,22 @@ def upgrade() -> None:
     op.create_table(
         "cwom_constraint_snapshots",
         sa.Column("id", sa.String(128), nullable=False, primary_key=True),
-        sa.Column("kind", sa.String(20), nullable=False, server_default="ConstraintSnapshot"),
+        sa.Column(
+            "kind", sa.String(20), nullable=False, server_default="ConstraintSnapshot"
+        ),
         sa.Column(
             "scope",
-            sa.Enum("personal", "repo", "org", "system", "run", name="cwom_constraint_scope"),
+            sa.Enum(
+                "personal", "repo", "org", "system", "run", name="cwom_constraint_scope"
+            ),
             nullable=False,
         ),
-        sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "captured_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column(
             "owner_kind",
             sa.Enum("human", "agent", "system", name="cwom_actor_kind"),
@@ -100,9 +125,19 @@ def upgrade() -> None:
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_cwom_constraint_snapshots_scope", "cwom_constraint_snapshots", ["scope"])
-    op.create_index("ix_cwom_constraint_snapshots_captured_at", "cwom_constraint_snapshots", ["captured_at"])
-    op.create_index("ix_cwom_constraint_snapshots_owner", "cwom_constraint_snapshots", ["owner_kind", "owner_id"])
+    op.create_index(
+        "ix_cwom_constraint_snapshots_scope", "cwom_constraint_snapshots", ["scope"]
+    )
+    op.create_index(
+        "ix_cwom_constraint_snapshots_captured_at",
+        "cwom_constraint_snapshots",
+        ["captured_at"],
+    )
+    op.create_index(
+        "ix_cwom_constraint_snapshots_owner",
+        "cwom_constraint_snapshots",
+        ["owner_kind", "owner_id"],
+    )
 
     # ==========================================================================
     # Create CWOM Doctrine Refs Table (needed before Issues for FK)
@@ -116,7 +151,14 @@ def upgrade() -> None:
         sa.Column("version", sa.String(64), nullable=False),
         sa.Column(
             "type",
-            sa.Enum("principle", "policy", "procedure", "heuristic", "pattern", name="cwom_doctrine_type"),
+            sa.Enum(
+                "principle",
+                "policy",
+                "procedure",
+                "heuristic",
+                "pattern",
+                name="cwom_doctrine_type",
+            ),
             nullable=False,
         ),
         sa.Column(
@@ -131,18 +173,40 @@ def upgrade() -> None:
         sa.Column("applicability", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("namespace", "name", "version", name="uq_doctrine_ref_nv"),
     )
-    op.create_index("ix_cwom_doctrine_refs_namespace", "cwom_doctrine_refs", ["namespace"])
+    op.create_index(
+        "ix_cwom_doctrine_refs_namespace", "cwom_doctrine_refs", ["namespace"]
+    )
     op.create_index("ix_cwom_doctrine_refs_name", "cwom_doctrine_refs", ["name"])
     op.create_index("ix_cwom_doctrine_refs_version", "cwom_doctrine_refs", ["version"])
     op.create_index("ix_cwom_doctrine_refs_type", "cwom_doctrine_refs", ["type"])
-    op.create_index("ix_cwom_doctrine_refs_namespace_name", "cwom_doctrine_refs", ["namespace", "name"])
-    op.create_index("ix_cwom_doctrine_refs_type_priority", "cwom_doctrine_refs", ["type", "priority"])
-    op.create_index("ix_cwom_doctrine_refs_created_at", "cwom_doctrine_refs", ["created_at"])
+    op.create_index(
+        "ix_cwom_doctrine_refs_namespace_name",
+        "cwom_doctrine_refs",
+        ["namespace", "name"],
+    )
+    op.create_index(
+        "ix_cwom_doctrine_refs_type_priority",
+        "cwom_doctrine_refs",
+        ["type", "priority"],
+    )
+    op.create_index(
+        "ix_cwom_doctrine_refs_created_at", "cwom_doctrine_refs", ["created_at"]
+    )
 
     # ==========================================================================
     # Create CWOM Issues Table
@@ -151,14 +215,25 @@ def upgrade() -> None:
         "cwom_issues",
         sa.Column("id", sa.String(128), nullable=False, primary_key=True),
         sa.Column("kind", sa.String(20), nullable=False, server_default="Issue"),
-        sa.Column("repo_id", sa.String(128), sa.ForeignKey("cwom_repos.id"), nullable=False),
+        sa.Column(
+            "repo_id", sa.String(128), sa.ForeignKey("cwom_repos.id"), nullable=False
+        ),
         sa.Column("repo_kind", sa.String(20), nullable=False, server_default="Repo"),
         sa.Column("repo_role", sa.String(64), nullable=True),
         sa.Column("title", sa.String(512), nullable=False),
         sa.Column("description", sa.Text(), nullable=False, server_default=""),
         sa.Column(
             "type",
-            sa.Enum("feature", "bug", "chore", "research", "ops", "doc", "incident", name="cwom_issue_type"),
+            sa.Enum(
+                "feature",
+                "bug",
+                "chore",
+                "research",
+                "ops",
+                "doc",
+                "incident",
+                name="cwom_issue_type",
+            ),
             nullable=False,
         ),
         sa.Column(
@@ -169,7 +244,16 @@ def upgrade() -> None:
         ),
         sa.Column(
             "status",
-            sa.Enum("planned", "ready", "running", "blocked", "done", "failed", "canceled", name="cwom_status"),
+            sa.Enum(
+                "planned",
+                "ready",
+                "running",
+                "blocked",
+                "done",
+                "failed",
+                "canceled",
+                name="cwom_status",
+            ),
             nullable=False,
             server_default="planned",
         ),
@@ -180,8 +264,18 @@ def upgrade() -> None:
         sa.Column("runs", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_cwom_issues_repo_id", "cwom_issues", ["repo_id"])
@@ -189,7 +283,9 @@ def upgrade() -> None:
     op.create_index("ix_cwom_issues_priority", "cwom_issues", ["priority"])
     op.create_index("ix_cwom_issues_status", "cwom_issues", ["status"])
     op.create_index("ix_cwom_issues_type_status", "cwom_issues", ["type", "status"])
-    op.create_index("ix_cwom_issues_priority_status", "cwom_issues", ["priority", "status"])
+    op.create_index(
+        "ix_cwom_issues_priority_status", "cwom_issues", ["priority", "status"]
+    )
     op.create_index("ix_cwom_issues_created_at", "cwom_issues", ["created_at"])
 
     # ==========================================================================
@@ -198,9 +294,18 @@ def upgrade() -> None:
     op.create_table(
         "cwom_context_packets",
         sa.Column("id", sa.String(128), nullable=False, primary_key=True),
-        sa.Column("kind", sa.String(20), nullable=False, server_default="ContextPacket"),
-        sa.Column("for_issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), nullable=False),
-        sa.Column("for_issue_kind", sa.String(20), nullable=False, server_default="Issue"),
+        sa.Column(
+            "kind", sa.String(20), nullable=False, server_default="ContextPacket"
+        ),
+        sa.Column(
+            "for_issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "for_issue_kind", sa.String(20), nullable=False, server_default="Issue"
+        ),
         sa.Column("for_issue_role", sa.String(64), nullable=True),
         sa.Column("version", sa.String(64), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False),
@@ -208,16 +313,37 @@ def upgrade() -> None:
         sa.Column("assumptions", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("open_questions", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("instructions", sa.Text(), nullable=False, server_default=""),
-        sa.Column("constraint_snapshot_id", sa.String(128), sa.ForeignKey("cwom_constraint_snapshots.id"), nullable=True),
+        sa.Column(
+            "constraint_snapshot_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_constraint_snapshots.id"),
+            nullable=True,
+        ),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_cwom_context_packets_for_issue_id", "cwom_context_packets", ["for_issue_id"])
-    op.create_index("ix_cwom_context_packets_version", "cwom_context_packets", ["version"])
-    op.create_index("ix_cwom_context_packets_created_at", "cwom_context_packets", ["created_at"])
+    op.create_index(
+        "ix_cwom_context_packets_for_issue_id", "cwom_context_packets", ["for_issue_id"]
+    )
+    op.create_index(
+        "ix_cwom_context_packets_version", "cwom_context_packets", ["version"]
+    )
+    op.create_index(
+        "ix_cwom_context_packets_created_at", "cwom_context_packets", ["created_at"]
+    )
 
     # ==========================================================================
     # Create CWOM Runs Table
@@ -226,15 +352,34 @@ def upgrade() -> None:
         "cwom_runs",
         sa.Column("id", sa.String(128), nullable=False, primary_key=True),
         sa.Column("kind", sa.String(20), nullable=False, server_default="Run"),
-        sa.Column("for_issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), nullable=False),
-        sa.Column("for_issue_kind", sa.String(20), nullable=False, server_default="Issue"),
+        sa.Column(
+            "for_issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "for_issue_kind", sa.String(20), nullable=False, server_default="Issue"
+        ),
         sa.Column("for_issue_role", sa.String(64), nullable=True),
-        sa.Column("repo_id", sa.String(128), sa.ForeignKey("cwom_repos.id"), nullable=False),
+        sa.Column(
+            "repo_id", sa.String(128), sa.ForeignKey("cwom_repos.id"), nullable=False
+        ),
         sa.Column("repo_kind", sa.String(20), nullable=False, server_default="Repo"),
         sa.Column("repo_role", sa.String(64), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("planned", "ready", "running", "blocked", "done", "failed", "canceled", name="cwom_status", create_type=False),
+            sa.Enum(
+                "planned",
+                "ready",
+                "running",
+                "blocked",
+                "done",
+                "failed",
+                "canceled",
+                name="cwom_status",
+                create_type=False,
+            ),
             nullable=False,
             server_default="planned",
         ),
@@ -245,7 +390,12 @@ def upgrade() -> None:
         ),
         sa.Column("executor", sa.JSON(), nullable=False),
         sa.Column("inputs", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("constraint_snapshot_id", sa.String(128), sa.ForeignKey("cwom_constraint_snapshots.id"), nullable=True),
+        sa.Column(
+            "constraint_snapshot_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_constraint_snapshots.id"),
+            nullable=True,
+        ),
         sa.Column("plan", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("telemetry", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("cost", sa.JSON(), nullable=False, server_default="{}"),
@@ -253,8 +403,18 @@ def upgrade() -> None:
         sa.Column("failure", sa.JSON(), nullable=True),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_cwom_runs_for_issue_id", "cwom_runs", ["for_issue_id"])
@@ -271,17 +431,41 @@ def upgrade() -> None:
         "cwom_artifacts",
         sa.Column("id", sa.String(128), nullable=False, primary_key=True),
         sa.Column("kind", sa.String(20), nullable=False, server_default="Artifact"),
-        sa.Column("produced_by_id", sa.String(128), sa.ForeignKey("cwom_runs.id"), nullable=False),
-        sa.Column("produced_by_kind", sa.String(20), nullable=False, server_default="Run"),
+        sa.Column(
+            "produced_by_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_runs.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "produced_by_kind", sa.String(20), nullable=False, server_default="Run"
+        ),
         sa.Column("produced_by_role", sa.String(64), nullable=True),
-        sa.Column("for_issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), nullable=False),
-        sa.Column("for_issue_kind", sa.String(20), nullable=False, server_default="Issue"),
+        sa.Column(
+            "for_issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "for_issue_kind", sa.String(20), nullable=False, server_default="Issue"
+        ),
         sa.Column("for_issue_role", sa.String(64), nullable=True),
         sa.Column(
             "type",
             sa.Enum(
-                "code_patch", "commit", "pr", "build", "container_image",
-                "doc", "report", "dataset", "log", "trace", "binary", "link",
+                "code_patch",
+                "commit",
+                "pr",
+                "build",
+                "container_image",
+                "doc",
+                "report",
+                "dataset",
+                "log",
+                "trace",
+                "binary",
+                "link",
                 name="cwom_artifact_type",
             ),
             nullable=False,
@@ -295,12 +479,26 @@ def upgrade() -> None:
         sa.Column("verification", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("tags", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_cwom_artifacts_produced_by_id", "cwom_artifacts", ["produced_by_id"])
-    op.create_index("ix_cwom_artifacts_for_issue_id", "cwom_artifacts", ["for_issue_id"])
+    op.create_index(
+        "ix_cwom_artifacts_produced_by_id", "cwom_artifacts", ["produced_by_id"]
+    )
+    op.create_index(
+        "ix_cwom_artifacts_for_issue_id", "cwom_artifacts", ["for_issue_id"]
+    )
     op.create_index("ix_cwom_artifacts_type", "cwom_artifacts", ["type"])
     op.create_index("ix_cwom_artifacts_digest", "cwom_artifacts", ["digest"])
     op.create_index("ix_cwom_artifacts_created_at", "cwom_artifacts", ["created_at"])
@@ -312,49 +510,115 @@ def upgrade() -> None:
     # Issue <-> ContextPacket
     op.create_table(
         "cwom_issue_context_packets",
-        sa.Column("issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), primary_key=True),
-        sa.Column("context_packet_id", sa.String(128), sa.ForeignKey("cwom_context_packets.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "context_packet_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_context_packets.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # Issue <-> DoctrineRef
     op.create_table(
         "cwom_issue_doctrine_refs",
-        sa.Column("issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), primary_key=True),
-        sa.Column("doctrine_ref_id", sa.String(128), sa.ForeignKey("cwom_doctrine_refs.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "doctrine_ref_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_doctrine_refs.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # Issue <-> ConstraintSnapshot
     op.create_table(
         "cwom_issue_constraint_snapshots",
-        sa.Column("issue_id", sa.String(128), sa.ForeignKey("cwom_issues.id"), primary_key=True),
-        sa.Column("constraint_snapshot_id", sa.String(128), sa.ForeignKey("cwom_constraint_snapshots.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "issue_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_issues.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "constraint_snapshot_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_constraint_snapshots.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # Run <-> ContextPacket
     op.create_table(
         "cwom_run_context_packets",
-        sa.Column("run_id", sa.String(128), sa.ForeignKey("cwom_runs.id"), primary_key=True),
-        sa.Column("context_packet_id", sa.String(128), sa.ForeignKey("cwom_context_packets.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "run_id", sa.String(128), sa.ForeignKey("cwom_runs.id"), primary_key=True
+        ),
+        sa.Column(
+            "context_packet_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_context_packets.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # Run <-> DoctrineRef
     op.create_table(
         "cwom_run_doctrine_refs",
-        sa.Column("run_id", sa.String(128), sa.ForeignKey("cwom_runs.id"), primary_key=True),
-        sa.Column("doctrine_ref_id", sa.String(128), sa.ForeignKey("cwom_doctrine_refs.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "run_id", sa.String(128), sa.ForeignKey("cwom_runs.id"), primary_key=True
+        ),
+        sa.Column(
+            "doctrine_ref_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_doctrine_refs.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
     # ContextPacket <-> DoctrineRef
     op.create_table(
         "cwom_context_packet_doctrine_refs",
-        sa.Column("context_packet_id", sa.String(128), sa.ForeignKey("cwom_context_packets.id"), primary_key=True),
-        sa.Column("doctrine_ref_id", sa.String(128), sa.ForeignKey("cwom_doctrine_refs.id"), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "context_packet_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_context_packets.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "doctrine_ref_id",
+            sa.String(128),
+            sa.ForeignKey("cwom_doctrine_refs.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
 
 

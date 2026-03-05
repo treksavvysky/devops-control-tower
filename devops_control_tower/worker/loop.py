@@ -25,16 +25,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..db.audit_service import AuditService
 from ..db.base import SessionLocal
 from ..db.cwom_models import (
-    CWOMRunModel,
     CWOMArtifactModel,
-    CWOMContextPacketModel,
     CWOMConstraintSnapshotModel,
+    CWOMContextPacketModel,
     CWOMIssueModel,
+    CWOMRunModel,
 )
 from ..db.models import TaskModel
-from ..db.audit_service import AuditService
 from .executor import ExecutionContext, ExecutionResult, get_executor
 from .pipeline import apply_review_policy, run_prove
 from .prover import Prover
@@ -153,18 +153,20 @@ class WorkerLoop:
         # Atomically claim it (optimistic locking)
         # Only update if status is still 'queued'
         result = db.execute(
-            text("""
+            text(
+                """
                 UPDATE tasks
                 SET status = 'running',
                     started_at = :started_at,
                     assigned_to = :worker_id
                 WHERE id = :task_id AND status = 'queued'
-            """),
+            """
+            ),
             {
                 "task_id": str(task.id),
                 "started_at": datetime.now(timezone.utc),
                 "worker_id": self.worker_id,
-            }
+            },
         )
         db.commit()
 
@@ -193,12 +195,10 @@ class WorkerLoop:
 
             # Set up trace storage
             trace_uri = get_trace_uri(
-                self.settings.jct_trace_root,
-                str(run.id) if run else str(task.id)
+                self.settings.jct_trace_root, str(run.id) if run else str(task.id)
             )
             store = create_trace_store(
-                self.settings.jct_trace_root,
-                str(run.id) if run else str(task.id)
+                self.settings.jct_trace_root, str(run.id) if run else str(task.id)
             )
 
             # Update run with artifact URI
@@ -238,9 +238,11 @@ class WorkerLoop:
             return None
 
         # Get linked issue
-        issue = db.query(CWOMIssueModel).filter(
-            CWOMIssueModel.id == task.cwom_issue_id
-        ).first()
+        issue = (
+            db.query(CWOMIssueModel)
+            .filter(CWOMIssueModel.id == task.cwom_issue_id)
+            .first()
+        )
 
         if not issue:
             logger.warning(
@@ -315,17 +317,23 @@ class WorkerLoop:
 
         if run:
             # Load context packet if available
-            cp = db.query(CWOMContextPacketModel).filter(
-                CWOMContextPacketModel.for_issue_id == run.for_issue_id
-            ).first()
+            cp = (
+                db.query(CWOMContextPacketModel)
+                .filter(CWOMContextPacketModel.for_issue_id == run.for_issue_id)
+                .first()
+            )
             if cp:
                 context_packet = cp.to_dict()
 
             # Load constraint snapshot if linked
             if run.constraint_snapshot_id:
-                cs = db.query(CWOMConstraintSnapshotModel).filter(
-                    CWOMConstraintSnapshotModel.id == run.constraint_snapshot_id
-                ).first()
+                cs = (
+                    db.query(CWOMConstraintSnapshotModel)
+                    .filter(
+                        CWOMConstraintSnapshotModel.id == run.constraint_snapshot_id
+                    )
+                    .first()
+                )
                 if cs:
                     constraint_snapshot = cs.to_dict()
 
@@ -467,9 +475,11 @@ class WorkerLoop:
                 }
 
             # Update linked issue status
-            issue = db.query(CWOMIssueModel).filter(
-                CWOMIssueModel.id == run.for_issue_id
-            ).first()
+            issue = (
+                db.query(CWOMIssueModel)
+                .filter(CWOMIssueModel.id == run.for_issue_id)
+                .first()
+            )
             if issue:
                 issue.status = "done" if result.success else "failed"
 
@@ -559,10 +569,12 @@ class WorkerLoop:
         # Write error to trace if store available
         if store:
             store.append_line("trace.log", f"[{now.isoformat()}] FATAL ERROR: {error}")
-            store.append_event({
-                "event": "execution_failed",
-                "error": error,
-            })
+            store.append_event(
+                {
+                    "event": "execution_failed",
+                    "error": error,
+                }
+            )
 
             manifest = {
                 "version": "1.0",
@@ -586,9 +598,11 @@ class WorkerLoop:
             }
 
             # Update linked issue status
-            issue = db.query(CWOMIssueModel).filter(
-                CWOMIssueModel.id == run.for_issue_id
-            ).first()
+            issue = (
+                db.query(CWOMIssueModel)
+                .filter(CWOMIssueModel.id == run.for_issue_id)
+                .first()
+            )
             if issue:
                 issue.status = "failed"
 

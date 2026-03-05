@@ -37,9 +37,7 @@ class DoctrineRef(BaseModel):
     namespace: constr(min_length=1, max_length=128) = Field(
         ..., description="Namespace for grouping (e.g., 'org/security', 'team/quality')"
     )
-    name: constr(min_length=1, max_length=256) = Field(
-        ..., description="Doctrine name"
-    )
+    name: constr(min_length=1, max_length=256) = Field(..., description="Doctrine name")
     version: constr(min_length=1, max_length=64) = Field(
         ..., description="Version string"
     )

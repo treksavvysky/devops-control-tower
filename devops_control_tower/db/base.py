@@ -118,15 +118,17 @@ async def init_database() -> None:
     """
     # Import all models to ensure they're registered with Base
     # This is needed for SQLAlchemy relationship resolution
-    from . import models  # noqa: F401
     from . import cwom_models  # noqa: F401
+    from . import models  # noqa: F401
 
     # Verify database connection works
     engine = get_engine()
     with engine.connect() as conn:
         conn.execute(sa.text("SELECT 1"))
 
-    print("Database connection verified. Run 'alembic upgrade head' to ensure schema is up to date.")
+    print(
+        "Database connection verified. Run 'alembic upgrade head' to ensure schema is up to date."
+    )
 
 
 async def drop_database() -> None:

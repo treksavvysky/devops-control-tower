@@ -8,40 +8,36 @@ If these tests fail, it means the schema has changed - verify the change is inte
 import pytest
 from pydantic import ValidationError
 
-from devops_control_tower.cwom import (
-    # Enums
-    ObjectKind,
-    Status,
-    IssueType,
-    Priority,
-    RunMode,
-    ArtifactType,
-    VerificationStatus,
-    DoctrineType,
-    DoctrinePriority,
-    Visibility,
-    ActorKind,
-    ConstraintScope,
-    # Primitives
+from devops_control_tower.cwom import (  # Enums; Primitives; Object types; Version
     Actor,
-    Source,
-    Ref,
-    # Object types
-    Repo,
-    RepoCreate,
-    Issue,
-    IssueCreate,
-    ContextPacket,
-    ContextPacketCreate,
-    ConstraintSnapshot,
-    ConstraintSnapshotCreate,
-    DoctrineRef,
-    DoctrineRefCreate,
-    Run,
-    RunCreate,
+    ActorKind,
     Artifact,
     ArtifactCreate,
-    # Version
+    ArtifactType,
+    ConstraintScope,
+    ConstraintSnapshot,
+    ConstraintSnapshotCreate,
+    ContextPacket,
+    ContextPacketCreate,
+    DoctrinePriority,
+    DoctrineRef,
+    DoctrineRefCreate,
+    DoctrineType,
+    Issue,
+    IssueCreate,
+    IssueType,
+    ObjectKind,
+    Priority,
+    Ref,
+    Repo,
+    RepoCreate,
+    Run,
+    RunCreate,
+    RunMode,
+    Source,
+    Status,
+    VerificationStatus,
+    Visibility,
     __version__,
 )
 
@@ -59,7 +55,17 @@ class TestObjectKinds:
 
     @pytest.mark.parametrize(
         "kind",
-        ["Repo", "Issue", "ContextPacket", "Run", "Artifact", "ConstraintSnapshot", "DoctrineRef", "EvidencePack", "ReviewDecision"],
+        [
+            "Repo",
+            "Issue",
+            "ContextPacket",
+            "Run",
+            "Artifact",
+            "ConstraintSnapshot",
+            "DoctrineRef",
+            "EvidencePack",
+            "ReviewDecision",
+        ],
     )
     def test_object_kind_exists(self, kind: str):
         """All canonical object kinds must be defined."""
@@ -71,7 +77,16 @@ class TestStatusEnum:
 
     @pytest.mark.parametrize(
         "status",
-        ["planned", "ready", "running", "blocked", "done", "failed", "canceled", "under_review"],
+        [
+            "planned",
+            "ready",
+            "running",
+            "blocked",
+            "done",
+            "failed",
+            "canceled",
+            "under_review",
+        ],
     )
     def test_status_exists(self, status: str):
         """All canonical statuses must be defined."""
@@ -96,8 +111,18 @@ class TestArtifactTypeEnum:
     @pytest.mark.parametrize(
         "artifact_type",
         [
-            "code_patch", "commit", "pr", "build", "container_image",
-            "doc", "report", "dataset", "log", "trace", "binary", "link",
+            "code_patch",
+            "commit",
+            "pr",
+            "build",
+            "container_image",
+            "doc",
+            "report",
+            "dataset",
+            "log",
+            "trace",
+            "binary",
+            "link",
         ],
     )
     def test_artifact_type_exists(self, artifact_type: str):
@@ -335,11 +360,12 @@ class TestReviewDecisionContract:
     def test_review_decision_importable(self):
         """ReviewDecision types must be importable from cwom."""
         from devops_control_tower.cwom import (
+            CriterionOverride,
             ReviewDecision,
             ReviewDecisionCreate,
-            CriterionOverride,
             ReviewDecisionStatus,
         )
+
         assert ReviewDecision is not None
         assert ReviewDecisionCreate is not None
         assert CriterionOverride is not None
@@ -348,15 +374,14 @@ class TestReviewDecisionContract:
     def test_review_decision_status_values(self):
         """ReviewDecisionStatus must have all required values."""
         from devops_control_tower.cwom import ReviewDecisionStatus
+
         values = {s.value for s in ReviewDecisionStatus}
         assert values == {"approved", "rejected", "needs_changes"}
 
     def test_review_decision_required_fields(self):
         """ReviewDecision must have required fields."""
-        from devops_control_tower.cwom import (
-            ReviewDecision,
-            ReviewDecisionStatus,
-        )
+        from devops_control_tower.cwom import ReviewDecision, ReviewDecisionStatus
+
         review = ReviewDecision(
             for_evidence_pack=Ref(kind=ObjectKind.EVIDENCE_PACK, id="ep1"),
             for_run=Ref(kind=ObjectKind.RUN, id="run1"),

@@ -46,9 +46,7 @@ class Repo(BaseModel):
     )
 
     # Ownership (simplified for v0.1)
-    owners: List[Actor] = Field(
-        default_factory=list, description="Repository owners"
-    )
+    owners: List[Actor] = Field(default_factory=list, description="Repository owners")
 
     # Policy
     policy: Optional[RepoPolicy] = Field(None, description="Repository policy settings")
@@ -57,7 +55,8 @@ class Repo(BaseModel):
     links: List[str] = Field(default_factory=list, description="Related links")
     tags: List[str] = Field(default_factory=list, description="Categorization tags")
     meta: Dict[str, Any] = Field(
-        default_factory=dict, description="Freeform metadata (namespaced keys recommended)"
+        default_factory=dict,
+        description="Freeform metadata (namespaced keys recommended)",
     )
 
     # Timestamps

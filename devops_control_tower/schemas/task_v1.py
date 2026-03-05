@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, constr, conint, model_validator, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field, conint, constr, model_validator
 
 # Reuse your existing RequestedBy and Constraints classes as-is.
+
 
 class RequestedBy(BaseModel):
     """Structured audit information about who/what initiated the task."""
@@ -82,11 +84,11 @@ class TaskCreateLegacyV1(BaseModel):
     # Acceptance and evidence (V1.1 additions)
     acceptance_criteria: List[str] = Field(
         default_factory=list,
-        description="Structured criteria that define task completion"
+        description="Structured criteria that define task completion",
     )
     evidence_requirements: List[str] = Field(
         default_factory=list,
-        description="Required artifacts/evidence to prove completion"
+        description="Required artifacts/evidence to prove completion",
     )
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -135,15 +137,13 @@ class TaskCreateLegacyV1(BaseModel):
                 "inputs": {},
                 "acceptance_criteria": [
                     "Endpoint returns 200 with JSON body",
-                    "pytest passes with >80% coverage"
+                    "pytest passes with >80% coverage",
                 ],
-                "evidence_requirements": [
-                    "test_healthz.py output",
-                    "coverage report"
-                ],
+                "evidence_requirements": ["test_healthz.py output", "coverage report"],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }
+
 
 class TargetV1(BaseModel):
     repo: constr(min_length=1, max_length=256)
@@ -153,12 +153,13 @@ class TargetV1(BaseModel):
     class Config:
         extra = "forbid"
 
+
 class TaskCreateV1(BaseModel):
     """
     JCT V1 Task Specification (Canonical).
     This is the schema new clients should submit.
     """
-    
+
     version: Literal["1.0"] = "1.0"
     idempotency_key: Optional[constr(min_length=1, max_length=256)] = None
 
@@ -174,11 +175,11 @@ class TaskCreateV1(BaseModel):
     # Acceptance and evidence (V1.1 additions)
     acceptance_criteria: List[str] = Field(
         default_factory=list,
-        description="Structured criteria that define task completion"
+        description="Structured criteria that define task completion",
     )
     evidence_requirements: List[str] = Field(
         default_factory=list,
-        description="Required artifacts/evidence to prove completion"
+        description="Required artifacts/evidence to prove completion",
     )
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -189,7 +190,11 @@ class TaskCreateV1(BaseModel):
             "example": {
                 "version": "1.0",
                 "idempotency_key": "demo-001",
-                "requested_by": {"kind": "human", "id": "operator", "label": "Operator"},
+                "requested_by": {
+                    "kind": "human",
+                    "id": "operator",
+                    "label": "Operator",
+                },
                 "objective": "Add a /healthz endpoint and a pytest that verifies 200 + body.",
                 "operation": "code_change",
                 "target": {"repo": "myorg/example-service", "ref": "main", "path": ""},
@@ -201,12 +206,9 @@ class TaskCreateV1(BaseModel):
                 "inputs": {},
                 "acceptance_criteria": [
                     "Endpoint returns 200 with JSON body",
-                    "pytest passes with >80% coverage"
+                    "pytest passes with >80% coverage",
                 ],
-                "evidence_requirements": [
-                    "test_healthz.py output",
-                    "coverage report"
-                ],
+                "evidence_requirements": ["test_healthz.py output", "coverage report"],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }

@@ -25,7 +25,9 @@ def upgrade() -> None:
         "tasks",
         # Primary fields - String(36) is portable; the model uses GUID TypeDecorator
         sa.Column("id", sa.String(length=36), nullable=False, primary_key=True),
-        sa.Column("version", sa.String(length=10), nullable=False, server_default="1.0"),
+        sa.Column(
+            "version", sa.String(length=10), nullable=False, server_default="1.0"
+        ),
         sa.Column("idempotency_key", sa.String(length=256), nullable=True),
         # Audit information (requested_by)
         sa.Column(
@@ -44,12 +46,22 @@ def upgrade() -> None:
         ),
         # Target information
         sa.Column("target_repo", sa.String(length=256), nullable=False),
-        sa.Column("target_ref", sa.String(length=256), nullable=False, server_default="main"),
-        sa.Column("target_path", sa.String(length=512), nullable=False, server_default=""),
+        sa.Column(
+            "target_ref", sa.String(length=256), nullable=False, server_default="main"
+        ),
+        sa.Column(
+            "target_path", sa.String(length=512), nullable=False, server_default=""
+        ),
         # Constraints
-        sa.Column("time_budget_seconds", sa.Integer(), nullable=False, server_default="900"),
-        sa.Column("allow_network", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column("allow_secrets", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "time_budget_seconds", sa.Integer(), nullable=False, server_default="900"
+        ),
+        sa.Column(
+            "allow_network", sa.Boolean(), nullable=False, server_default="false"
+        ),
+        sa.Column(
+            "allow_secrets", sa.Boolean(), nullable=False, server_default="false"
+        ),
         # Task data
         sa.Column("inputs", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("metadata", sa.JSON(), nullable=False, server_default="{}"),
@@ -69,7 +81,12 @@ def upgrade() -> None:
             server_default="pending",
         ),
         # Timestamps
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column("queued_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),

@@ -11,6 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..db.base import get_db
+from .artifact import ArtifactCreate
+from .constraint_snapshot import ConstraintSnapshotCreate
+from .context_packet import ContextPacketCreate
+from .doctrine_ref import DoctrineRefCreate
+from .issue import IssueCreate
+from .repo import RepoCreate
+from .review_decision import ReviewDecisionCreate
+from .run import RunCreate, RunUpdate
 from .services import (
     ArtifactService,
     ConstraintSnapshotService,
@@ -23,14 +31,6 @@ from .services import (
     ReviewDecisionService,
     RunService,
 )
-from .review_decision import ReviewDecisionCreate
-from .repo import RepoCreate
-from .issue import IssueCreate
-from .context_packet import ContextPacketCreate
-from .constraint_snapshot import ConstraintSnapshotCreate
-from .doctrine_ref import DoctrineRefCreate
-from .run import RunCreate, RunUpdate
-from .artifact import ArtifactCreate
 
 router = APIRouter(prefix="/cwom", tags=["CWOM"])
 
@@ -343,9 +343,7 @@ async def create_doctrine_ref(
     service = DoctrineRefService(db)
 
     # Check for existing doctrine with same namespace/name/version
-    existing = service.get_by_name(
-        doctrine.namespace, doctrine.name, doctrine.version
-    )
+    existing = service.get_by_name(doctrine.namespace, doctrine.name, doctrine.version)
     if existing:
         raise HTTPException(
             status_code=409,
@@ -637,8 +635,7 @@ async def get_evidence_pack_for_run(
 
     if not evidence_pack:
         raise HTTPException(
-            status_code=404,
-            detail=f"No EvidencePack found for Run '{run_id}'"
+            status_code=404, detail=f"No EvidencePack found for Run '{run_id}'"
         )
 
     return evidence_pack.to_dict()

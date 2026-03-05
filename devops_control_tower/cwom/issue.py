@@ -44,9 +44,7 @@ class Issue(BaseModel):
     repo: Ref = Field(..., description="Reference to the containing Repo")
 
     # Core fields
-    title: constr(min_length=1, max_length=512) = Field(
-        ..., description="Issue title"
-    )
+    title: constr(min_length=1, max_length=512) = Field(..., description="Issue title")
     description: constr(max_length=16000) = Field(
         "", description="Detailed description"
     )

@@ -156,7 +156,9 @@ class StubActionRunner(ActionRunner):
             )
 
             # Create error artifact
-            error_content = self._create_error_log(action_name, started_at, completed_at, e)
+            error_content = self._create_error_log(
+                action_name, started_at, completed_at, e
+            )
 
             artifacts = [
                 {

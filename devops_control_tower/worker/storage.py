@@ -97,9 +97,7 @@ class FileTraceStore(TraceStore):
         """Write JSON data to a path within the trace folder."""
         full_path = self.base_path / path
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(
-            json.dumps(data, indent=2, default=str), encoding="utf-8"
-        )
+        full_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
     def append_line(self, path: str, line: str) -> None:
         """Append a line to a file (for logs)."""
@@ -147,9 +145,7 @@ def create_trace_store(uri: str, run_id: str) -> TraceStore:
     elif parsed.scheme == "s3":
         # s3://bucket/prefix -> s3://bucket/prefix/{run_id}
         # TODO: Implement S3TraceStore in v2
-        raise NotImplementedError(
-            f"S3 storage not yet implemented. URI: {uri}"
-        )
+        raise NotImplementedError(f"S3 storage not yet implemented. URI: {uri}")
 
     else:
         raise ValueError(

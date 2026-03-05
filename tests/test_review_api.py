@@ -100,8 +100,8 @@ def _seed_review_data(suffix: str = ""):
 
 def _create_evidence_pack_direct(run_id: str, issue_id: str) -> str:
     """Create an evidence pack directly via DB since there's no POST endpoint."""
-    from tests.conftest import TestSessionLocal
     from devops_control_tower.cwom.primitives import generate_ulid
+    from tests.conftest import TestSessionLocal
 
     # Use the test session (same DB as TestClient)
     db = TestSessionLocal()

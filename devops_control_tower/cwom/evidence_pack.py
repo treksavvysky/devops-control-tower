@@ -56,9 +56,7 @@ class EvidenceItem(BaseModel):
     artifact_uri: Optional[str] = Field(
         None, description="URI to the artifact that satisfies this requirement"
     )
-    artifact_type: Optional[str] = Field(
-        None, description="Type of artifact found"
-    )
+    artifact_type: Optional[str] = Field(None, description="Type of artifact found")
     notes: Optional[str] = Field(
         None, description="Additional notes about the evidence"
     )

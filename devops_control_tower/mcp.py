@@ -259,9 +259,7 @@ def jct_claim_task(task_id: str) -> str:
 
             if issue:
                 run_id = str(uuid.uuid4())
-                trace_uri = get_trace_uri(
-                    settings.jct_trace_root, run_id
-                )
+                trace_uri = get_trace_uri(settings.jct_trace_root, run_id)
 
                 run = CWOMRunModel(
                     id=run_id,
@@ -328,9 +326,7 @@ def jct_claim_task(task_id: str) -> str:
                 # Load context packet
                 cp = (
                     db.query(CWOMContextPacketModel)
-                    .filter(
-                        CWOMContextPacketModel.for_issue_id == issue.id
-                    )
+                    .filter(CWOMContextPacketModel.for_issue_id == issue.id)
                     .first()
                 )
                 if cp:
@@ -443,9 +439,7 @@ def jct_get_context(task_id: str) -> str:
                 # Context packet
                 cp = (
                     db.query(CWOMContextPacketModel)
-                    .filter(
-                        CWOMContextPacketModel.for_issue_id == issue.id
-                    )
+                    .filter(CWOMContextPacketModel.for_issue_id == issue.id)
                     .first()
                 )
                 if cp:
@@ -466,9 +460,7 @@ def jct_get_context(task_id: str) -> str:
 
                 # Doctrine refs via join table
                 if hasattr(issue, "doctrine_refs") and issue.doctrine_refs:
-                    result["doctrine_refs"] = [
-                        d.to_dict() for d in issue.doctrine_refs
-                    ]
+                    result["doctrine_refs"] = [d.to_dict() for d in issue.doctrine_refs]
 
         return _success(**result)
     except Exception as exc:
@@ -529,9 +521,7 @@ def jct_report_artifact(
         # Write content to trace store
         artifact_uri = uri
         if content and store:
-            safe_title = (
-                title.lower().replace(" ", "_").replace("/", "_")[:50]
-            )
+            safe_title = title.lower().replace(" ", "_").replace("/", "_")[:50]
             artifact_path = f"artifacts/{safe_title}"
             store.write_text(artifact_path, content)
             artifact_uri = f"{store.get_uri()}/{artifact_path}"
@@ -615,15 +605,9 @@ def jct_complete_task(
     db = _get_db()
     try:
         from devops_control_tower.db.audit_service import AuditService
-        from devops_control_tower.db.cwom_models import (
-            CWOMIssueModel,
-            CWOMRunModel,
-        )
+        from devops_control_tower.db.cwom_models import CWOMIssueModel, CWOMRunModel
         from devops_control_tower.db.models import TaskModel
-        from devops_control_tower.worker.pipeline import (
-            apply_review_policy,
-            run_prove,
-        )
+        from devops_control_tower.worker.pipeline import apply_review_policy, run_prove
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
@@ -632,8 +616,7 @@ def jct_complete_task(
         if task.status != "running":
             return _error(
                 "TASK_NOT_RUNNING",
-                f"Task '{task_id}' is not running "
-                f"(current status: {task.status}).",
+                f"Task '{task_id}' is not running " f"(current status: {task.status}).",
             )
 
         claim = _get_active_claim(task_id, db)
@@ -666,11 +649,7 @@ def jct_complete_task(
             run_id = claim["run_id"]
             store = claim.get("store")
 
-            run = (
-                db.query(CWOMRunModel)
-                .filter(CWOMRunModel.id == run_id)
-                .first()
-            )
+            run = db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
 
             if run:
                 run.status = "done" if success else "failed"
@@ -819,8 +798,8 @@ def jct_get_run(run_id: str) -> str:
     """Get full details of a CWOM Run."""
     db = _get_db()
     try:
-        from devops_control_tower.db.cwom_models import CWOMRunModel
         from devops_control_tower.cwom.services import EvidencePackService
+        from devops_control_tower.db.cwom_models import CWOMRunModel
 
         run = db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
         if not run:

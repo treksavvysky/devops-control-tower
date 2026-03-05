@@ -6,22 +6,21 @@ Tests the bidirectional mapping between JCT V1 Tasks and CWOM objects.
 
 import pytest
 
-from devops_control_tower.cwom.task_adapter import (
-    task_to_cwom,
-    issue_to_task,
-    OPERATION_TO_ISSUE_TYPE,
-    ISSUE_TYPE_TO_OPERATION,
-)
 from devops_control_tower.cwom.enums import IssueType, Status
+from devops_control_tower.cwom.task_adapter import (
+    ISSUE_TYPE_TO_OPERATION,
+    OPERATION_TO_ISSUE_TYPE,
+    issue_to_task,
+    task_to_cwom,
+)
 from devops_control_tower.schemas.task_v1 import (
-    TaskCreateV1,
-    TaskCreateLegacyV1,
+    Constraints,
     RequestedBy,
     Target,
     TargetV1,
-    Constraints,
+    TaskCreateLegacyV1,
+    TaskCreateV1,
 )
-
 
 # Note: client and db_session fixtures are provided by conftest.py
 

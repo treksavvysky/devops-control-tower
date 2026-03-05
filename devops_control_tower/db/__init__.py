@@ -2,8 +2,10 @@
 Database package for DevOps Control Tower.
 """
 
+# Audit log
+from .audit_models import AuditLogModel
+from .audit_service import AuditService
 from .base import Base, SessionLocal, engine, get_db
-from .models import AgentModel, EventModel, WorkflowModel
 
 # CWOM v0.1 models
 from .cwom_models import (
@@ -15,10 +17,7 @@ from .cwom_models import (
     CWOMRepoModel,
     CWOMRunModel,
 )
-
-# Audit log
-from .audit_models import AuditLogModel
-from .audit_service import AuditService
+from .models import AgentModel, EventModel, WorkflowModel
 
 __all__ = [
     "Base",

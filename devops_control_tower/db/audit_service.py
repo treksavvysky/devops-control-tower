@@ -18,9 +18,11 @@ def generate_ulid() -> str:
     """Generate a ULID for audit log entries."""
     try:
         from ulid import ULID
+
         return str(ULID())
     except ImportError:
         import uuid
+
         return str(uuid.uuid4())
 
 
@@ -411,12 +413,7 @@ class AuditService:
         if entity_kind:
             query = query.filter(AuditLogModel.entity_kind == entity_kind)
 
-        return (
-            query.order_by(desc(AuditLogModel.ts))
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return query.order_by(desc(AuditLogModel.ts)).offset(offset).limit(limit).all()
 
     def query_recent(
         self,

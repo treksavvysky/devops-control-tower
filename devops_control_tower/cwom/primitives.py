@@ -161,10 +161,10 @@ class EnergyConstraint(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    score_0_5: Optional[int] = Field(
-        None, ge=0, le=5, description="Energy level 0-5"
+    score_0_5: Optional[int] = Field(None, ge=0, le=5, description="Energy level 0-5")
+    notes: Optional[constr(max_length=500)] = Field(
+        None, description="Additional notes"
     )
-    notes: Optional[constr(max_length=500)] = Field(None, description="Additional notes")
 
 
 class HealthConstraint(BaseModel):
@@ -173,7 +173,9 @@ class HealthConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     flags: List[str] = Field(default_factory=list, description="Health flags")
-    notes: Optional[constr(max_length=500)] = Field(None, description="Additional notes")
+    notes: Optional[constr(max_length=500)] = Field(
+        None, description="Additional notes"
+    )
 
 
 class BudgetConstraint(BaseModel):
@@ -264,9 +266,7 @@ class IssueRelationships(BaseModel):
     blocked_by: List[Ref] = Field(
         default_factory=list, description="Issues blocking this"
     )
-    duplicates: List[Ref] = Field(
-        default_factory=list, description="Duplicate issues"
-    )
+    duplicates: List[Ref] = Field(default_factory=list, description="Duplicate issues")
 
 
 class Executor(BaseModel):
@@ -335,9 +335,9 @@ class Failure(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    category: Literal["policy", "build", "test", "runtime", "dependency", "unknown"] = (
-        Field(..., description="Failure category")
-    )
+    category: Literal[
+        "policy", "build", "test", "runtime", "dependency", "unknown"
+    ] = Field(..., description="Failure category")
     message: constr(min_length=1, max_length=4000) = Field(
         ..., description="Failure message"
     )
@@ -380,9 +380,7 @@ class DoctrineApplicability(BaseModel):
     issue_types: List[str] = Field(
         default_factory=list, description="Issue types where this applies"
     )
-    tags: List[str] = Field(
-        default_factory=list, description="Tags where this applies"
-    )
+    tags: List[str] = Field(default_factory=list, description="Tags where this applies")
 
 
 class ContextInputs(BaseModel):
@@ -393,9 +391,7 @@ class ContextInputs(BaseModel):
     documents: List[Document] = Field(
         default_factory=list, description="Reference documents"
     )
-    data_blobs: List[DataBlob] = Field(
-        default_factory=list, description="Data blobs"
-    )
+    data_blobs: List[DataBlob] = Field(default_factory=list, description="Data blobs")
     links: List[str] = Field(default_factory=list, description="Related links")
 
 

@@ -32,7 +32,6 @@ from sqlalchemy.sql import func
 
 from .base import Base
 
-
 # =============================================================================
 # Join Tables for Many-to-Many Relationships
 # =============================================================================
@@ -166,13 +165,9 @@ cwom_issue_type_enum = Enum(
     name="cwom_issue_type",
 )
 
-cwom_priority_enum = Enum(
-    "P0", "P1", "P2", "P3", "P4", name="cwom_priority"
-)
+cwom_priority_enum = Enum("P0", "P1", "P2", "P3", "P4", name="cwom_priority")
 
-cwom_run_mode_enum = Enum(
-    "human", "agent", "hybrid", "system", name="cwom_run_mode"
-)
+cwom_run_mode_enum = Enum("human", "agent", "hybrid", "system", name="cwom_run_mode")
 
 cwom_artifact_type_enum = Enum(
     "code_patch",
@@ -195,7 +190,11 @@ cwom_verification_status_enum = Enum(
 )
 
 cwom_doctrine_type_enum = Enum(
-    "principle", "policy", "procedure", "heuristic", "pattern",
+    "principle",
+    "policy",
+    "procedure",
+    "heuristic",
+    "pattern",
     name="cwom_doctrine_type",
 )
 
@@ -203,21 +202,15 @@ cwom_doctrine_priority_enum = Enum(
     "must", "should", "may", name="cwom_doctrine_priority"
 )
 
-cwom_visibility_enum = Enum(
-    "public", "private", "internal", name="cwom_visibility"
-)
+cwom_visibility_enum = Enum("public", "private", "internal", name="cwom_visibility")
 
-cwom_actor_kind_enum = Enum(
-    "human", "agent", "system", name="cwom_actor_kind"
-)
+cwom_actor_kind_enum = Enum("human", "agent", "system", name="cwom_actor_kind")
 
 cwom_constraint_scope_enum = Enum(
     "personal", "repo", "org", "system", "run", name="cwom_constraint_scope"
 )
 
-cwom_verdict_enum = Enum(
-    "pass", "fail", "partial", "pending", name="cwom_verdict"
-)
+cwom_verdict_enum = Enum("pass", "fail", "partial", "pending", name="cwom_verdict")
 
 cwom_criterion_status_enum = Enum(
     "satisfied", "not_satisfied", "unverified", "skipped", name="cwom_criterion_status"
@@ -317,7 +310,9 @@ class CWOMIssueModel(Base):
     trace_id = Column(String(36), nullable=True, index=True)
 
     # Repository reference (foreign key)
-    repo_id = Column(String(128), ForeignKey("cwom_repos.id"), nullable=False, index=True)
+    repo_id = Column(
+        String(128), ForeignKey("cwom_repos.id"), nullable=False, index=True
+    )
     repo_kind = Column(String(20), nullable=False, default="Repo")
     repo_role = Column(String(64), nullable=True)
 
@@ -399,17 +394,21 @@ class CWOMIssueModel(Base):
             "assignees": self.assignees,
             "watchers": self.watchers,
             "doctrine_refs": [
-                {"kind": "DoctrineRef", "id": dr.id}
-                for dr in self.doctrine_refs_rel
-            ] if self.doctrine_refs_rel else [],
+                {"kind": "DoctrineRef", "id": dr.id} for dr in self.doctrine_refs_rel
+            ]
+            if self.doctrine_refs_rel
+            else [],
             "constraints": [
                 {"kind": "ConstraintSnapshot", "id": cs.id}
                 for cs in self.constraint_snapshots
-            ] if self.constraint_snapshots else [],
+            ]
+            if self.constraint_snapshots
+            else [],
             "context_packets": [
-                {"kind": "ContextPacket", "id": cp.id}
-                for cp in self.context_packets
-            ] if self.context_packets else [],
+                {"kind": "ContextPacket", "id": cp.id} for cp in self.context_packets
+            ]
+            if self.context_packets
+            else [],
             "acceptance": self.acceptance,
             "relationships": self.relationships,
             "runs": self.runs,
@@ -514,13 +513,16 @@ class CWOMContextPacketModel(Base):
             "open_questions": self.open_questions,
             "instructions": self.instructions,
             "doctrine_refs": [
-                {"kind": "DoctrineRef", "id": dr.id}
-                for dr in self.doctrine_refs_rel
-            ] if self.doctrine_refs_rel else [],
+                {"kind": "DoctrineRef", "id": dr.id} for dr in self.doctrine_refs_rel
+            ]
+            if self.doctrine_refs_rel
+            else [],
             "constraint_snapshot": {
                 "kind": "ConstraintSnapshot",
                 "id": self.constraint_snapshot_id,
-            } if self.constraint_snapshot_id else None,
+            }
+            if self.constraint_snapshot_id
+            else None,
             "tags": self.tags,
             "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -1002,7 +1004,9 @@ class CWOMEvidencePackModel(Base):
             },
             "verdict": self.verdict,
             "verdict_reason": self.verdict_reason,
-            "evaluated_at": self.evaluated_at.isoformat() if self.evaluated_at else None,
+            "evaluated_at": self.evaluated_at.isoformat()
+            if self.evaluated_at
+            else None,
             "evaluated_by": {
                 "kind": self.evaluated_by_kind,
                 "id": self.evaluated_by_id,
@@ -1131,16 +1135,10 @@ class CWOMReviewDecisionModel(Base):
             },
             "decision": self.decision,
             "decision_reason": self.decision_reason,
-            "reviewed_at": (
-                self.reviewed_at.isoformat() if self.reviewed_at else None
-            ),
+            "reviewed_at": (self.reviewed_at.isoformat() if self.reviewed_at else None),
             "criteria_overrides": self.criteria_overrides,
             "tags": self.tags,
             "meta": self.meta,
-            "created_at": (
-                self.created_at.isoformat() if self.created_at else None
-            ),
-            "updated_at": (
-                self.updated_at.isoformat() if self.updated_at else None
-            ),
+            "created_at": (self.created_at.isoformat() if self.created_at else None),
+            "updated_at": (self.updated_at.isoformat() if self.updated_at else None),
         }

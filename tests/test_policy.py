@@ -75,9 +75,7 @@ class TestNormalizeRepo:
 class TestOperationValidation:
     """Tests for operation validation."""
 
-    @pytest.mark.parametrize(
-        "operation", ["code_change", "docs", "analysis", "ops"]
-    )
+    @pytest.mark.parametrize("operation", ["code_change", "docs", "analysis", "ops"])
     def test_valid_operations_pass(self, operation):
         task = make_valid_task(operation=operation)
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
@@ -157,27 +155,21 @@ class TestTimeBudgetValidation:
     """Tests for time budget constraint validation."""
 
     def test_valid_time_budget_passes(self):
-        task = make_valid_task(
-            constraints=Constraints(time_budget_seconds=3600)
-        )
+        task = make_valid_task(constraints=Constraints(time_budget_seconds=3600))
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
         result = evaluate(task, config)
         assert result.constraints.time_budget_seconds == 3600
 
     def test_minimum_time_budget_passes(self):
-        task = make_valid_task(
-            constraints=Constraints(time_budget_seconds=30)
-        )
+        task = make_valid_task(constraints=Constraints(time_budget_seconds=30))
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
         result = evaluate(task, config)
         assert result.constraints.time_budget_seconds == 30
 
     def test_maximum_time_budget_passes(self):
-        task = make_valid_task(
-            constraints=Constraints(time_budget_seconds=86400)
-        )
+        task = make_valid_task(constraints=Constraints(time_budget_seconds=86400))
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
         result = evaluate(task, config)
@@ -198,18 +190,14 @@ class TestNetworkAccessValidation:
     """Tests for network access constraint validation."""
 
     def test_network_false_passes(self):
-        task = make_valid_task(
-            constraints=Constraints(allow_network=False)
-        )
+        task = make_valid_task(constraints=Constraints(allow_network=False))
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
         result = evaluate(task, config)
         assert result.constraints.allow_network is False
 
     def test_network_true_raises_policy_error(self):
-        task = make_valid_task(
-            constraints=Constraints(allow_network=True)
-        )
+        task = make_valid_task(constraints=Constraints(allow_network=True))
         with pytest.raises(PolicyError) as exc_info:
             config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
@@ -221,18 +209,14 @@ class TestSecretsAccessValidation:
     """Tests for secrets access constraint validation."""
 
     def test_secrets_false_passes(self):
-        task = make_valid_task(
-            constraints=Constraints(allow_secrets=False)
-        )
+        task = make_valid_task(constraints=Constraints(allow_secrets=False))
         config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
         result = evaluate(task, config)
         assert result.constraints.allow_secrets is False
 
     def test_secrets_true_raises_policy_error(self):
-        task = make_valid_task(
-            constraints=Constraints(allow_secrets=True)
-        )
+        task = make_valid_task(constraints=Constraints(allow_secrets=True))
         with pytest.raises(PolicyError) as exc_info:
             config = PolicyConfig(allowed_repo_prefixes=["testorg/"])
 
@@ -429,7 +413,9 @@ class TestCompatibilityLayerSchema:
 
     def test_missing_operation_and_type_raises_error(self):
         """Missing both 'operation' and 'type' should raise ValueError."""
-        with pytest.raises(ValueError, match="Either 'operation' or 'type' must be provided"):
+        with pytest.raises(
+            ValueError, match="Either 'operation' or 'type' must be provided"
+        ):
             TaskCreateLegacyV1(
                 requested_by=RequestedBy(kind="human", id="test"),
                 objective="Test missing operation",
@@ -438,7 +424,9 @@ class TestCompatibilityLayerSchema:
 
     def test_missing_repo_and_repository_raises_error(self):
         """Missing both 'repo' and 'repository' should raise ValueError."""
-        with pytest.raises(ValueError, match="Either 'repo' or 'repository' must be provided"):
+        with pytest.raises(
+            ValueError, match="Either 'repo' or 'repository' must be provided"
+        ):
             Target(ref="main", path="src/")
 
     def test_legacy_task_through_policy_evaluation(self):

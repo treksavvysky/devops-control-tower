@@ -24,7 +24,9 @@ class CriterionOverride(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    criterion_index: int = Field(..., ge=0, description="Index of criterion being overridden")
+    criterion_index: int = Field(
+        ..., ge=0, description="Index of criterion being overridden"
+    )
     original_status: CriterionStatus = Field(
         ..., description="Original automated status from EvidencePack"
     )

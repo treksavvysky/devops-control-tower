@@ -85,8 +85,7 @@ def apply_review_policy(
     settings = get_settings()
     auto_approve = settings.jct_review_auto_approve
     allowed_verdicts = [
-        v.strip()
-        for v in settings.jct_review_auto_approve_verdicts.split(",")
+        v.strip() for v in settings.jct_review_auto_approve_verdicts.split(",")
     ]
     verdict_qualifies = evidence_pack.verdict in allowed_verdicts
     _trace_id = trace_id or task.trace_id
@@ -108,9 +107,7 @@ def apply_review_policy(
                 "display": "Automatic Review (Policy-Based)",
             },
             "decision": "approved",
-            "decision_reason": (
-                f"Auto-approved: verdict={evidence_pack.verdict}"
-            ),
+            "decision_reason": (f"Auto-approved: verdict={evidence_pack.verdict}"),
             "tags": ["auto-approved", "v0"],
         }
 

@@ -23,7 +23,6 @@ from devops_control_tower.data.models.events import Event, EventPriority, EventT
 from devops_control_tower.db import base as db_base
 from devops_control_tower.db.base import Base, get_db
 
-
 # =============================================================================
 # Shared Test Database Setup
 # =============================================================================
@@ -67,9 +66,9 @@ def setup_test_database():
     This runs automatically before any tests and tears down after all tests.
     """
     # Import all models to ensure they're registered with Base.metadata
-    from devops_control_tower.db import models  # noqa: F401
-    from devops_control_tower.db import cwom_models  # noqa: F401
     from devops_control_tower.db import audit_models  # noqa: F401
+    from devops_control_tower.db import cwom_models  # noqa: F401
+    from devops_control_tower.db import models  # noqa: F401
 
     # Create all tables
     Base.metadata.create_all(bind=test_engine)
@@ -112,6 +111,7 @@ def client(setup_test_database) -> Generator[TestClient, None, None]:
 # Orchestrator Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for the test session."""
@@ -132,6 +132,7 @@ async def orchestrator() -> Orchestrator:
 # =============================================================================
 # Sample Data Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_event() -> Event:

@@ -15,8 +15,17 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..schemas.task_v1 import TaskCreateV1, TaskCreateLegacyV1
+from ..db.cwom_models import (
+    CWOMConstraintSnapshotModel,
+    CWOMContextPacketModel,
+    CWOMIssueModel,
+    CWOMRepoModel,
+)
+from ..schemas.task_v1 import TaskCreateLegacyV1, TaskCreateV1
+from .constraint_snapshot import ConstraintSnapshotCreate
+from .context_packet import ContextPacketCreate
 from .enums import ConstraintScope, IssueType, Priority, Status
+from .issue import IssueCreate
 from .primitives import (
     Acceptance,
     Actor,
@@ -29,22 +38,12 @@ from .primitives import (
     TimeConstraint,
 )
 from .repo import RepoCreate
-from .issue import IssueCreate
-from .context_packet import ContextPacketCreate
-from .constraint_snapshot import ConstraintSnapshotCreate
 from .services import (
     ConstraintSnapshotService,
     ContextPacketService,
     IssueService,
     RepoService,
 )
-from ..db.cwom_models import (
-    CWOMConstraintSnapshotModel,
-    CWOMContextPacketModel,
-    CWOMIssueModel,
-    CWOMRepoModel,
-)
-
 
 # Operation to IssueType mapping
 OPERATION_TO_ISSUE_TYPE = {
@@ -148,13 +147,21 @@ def task_to_cwom(
 
     # Build properly typed constraint objects
     time_budget = constraints_data.get("time_budget_seconds", 900)
-    time_constraint = TimeConstraint(available_minutes=time_budget // 60) if time_budget else None
+    time_constraint = (
+        TimeConstraint(available_minutes=time_budget // 60) if time_budget else None
+    )
 
     # Map allow_network/allow_secrets to risk tolerance
     allow_network = constraints_data.get("allow_network", False)
     allow_secrets = constraints_data.get("allow_secrets", False)
     # Low tolerance = no network/secrets, high = both allowed
-    risk_tolerance = "high" if (allow_network and allow_secrets) else "medium" if (allow_network or allow_secrets) else "low"
+    risk_tolerance = (
+        "high"
+        if (allow_network and allow_secrets)
+        else "medium"
+        if (allow_network or allow_secrets)
+        else "low"
+    )
     risk_constraint = RiskConstraint(
         tolerance=risk_tolerance,
         notes=f"allow_network={allow_network}, allow_secrets={allow_secrets}",
@@ -234,7 +241,9 @@ def task_to_cwom(
             f"Working path: {repo_path or '(root)'}",
         ],
         instructions=objective,
-        constraint_snapshot=Ref(kind=ObjectKind.CONSTRAINT_SNAPSHOT, id=constraint_snapshot.id),
+        constraint_snapshot=Ref(
+            kind=ObjectKind.CONSTRAINT_SNAPSHOT, id=constraint_snapshot.id
+        ),
         meta={
             "source": "jct_task",
             "idempotency_key": task_data.get("idempotency_key"),
@@ -325,7 +334,9 @@ def issue_to_task(
             if "allow_secrets" in meta:
                 constraints["allow_secrets"] = meta["allow_secrets"]
         # Fallback to constraints object if meta not available
-        elif constraint_snapshot.constraints and isinstance(constraint_snapshot.constraints, dict):
+        elif constraint_snapshot.constraints and isinstance(
+            constraint_snapshot.constraints, dict
+        ):
             cs = constraint_snapshot.constraints
             if "time" in cs and cs["time"]:
                 available_minutes = cs["time"].get("available_minutes", 15)
@@ -361,7 +372,9 @@ def issue_to_task(
 
     return {
         "version": "1.0",
-        "idempotency_key": issue.meta.get("idempotency_key") if isinstance(issue.meta, dict) else None,
+        "idempotency_key": issue.meta.get("idempotency_key")
+        if isinstance(issue.meta, dict)
+        else None,
         "requested_by": requested_by,
         "objective": issue.description or issue.title,
         "operation": operation,
