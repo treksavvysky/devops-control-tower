@@ -36,21 +36,15 @@ class GUID(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(PG_UUID(as_uuid=True))
-        else:
-            return dialect.type_descriptor(CHAR(36))
+        # Always use CHAR(36) to match existing varchar columns in migrations
+        return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return value
-        elif dialect.name == "postgresql":
-            return value
-        else:
-            if isinstance(value, uuid_module.UUID):
-                return str(value)
-            else:
-                return str(uuid_module.UUID(value))
+        if isinstance(value, uuid_module.UUID):
+            return str(value)
+        return str(uuid_module.UUID(value))
 
     def process_result_value(self, value, dialect):
         if value is None:
