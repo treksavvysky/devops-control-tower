@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,9 @@ server = FastMCP(
         "Claim tasks from the queue, read context and constraints, "
         "execute work, report artifacts, and complete tasks. "
         "All operations are audited with full causality tracking."
+    ),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
     ),
 )
 

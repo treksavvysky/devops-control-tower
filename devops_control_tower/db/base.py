@@ -37,8 +37,17 @@ def _ensure_sync_driver(url: URL) -> URL:
 
 def get_database_url(raw_url: Optional[str] = None) -> str:
     """Return a database URL with a guaranteed synchronous driver."""
+    from ..config import get_settings
 
-    url = make_url(raw_url or os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL)
+    settings_url = None
+    try:
+        settings_url = get_settings().database_url
+    except Exception:
+        pass
+
+    url = make_url(
+        raw_url or os.getenv("DATABASE_URL") or settings_url or DEFAULT_DATABASE_URL
+    )
     # Use render_as_string with hide_password=False to preserve the actual password
     # str(url) would mask the password with *** which breaks authentication
     return _ensure_sync_driver(url).render_as_string(hide_password=False)
