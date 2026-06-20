@@ -108,7 +108,10 @@ from .mcp import server as mcp_server
 
 @app.middleware("http")
 async def mcp_auth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/mcp"):
+    is_mcp = request.url.path.startswith("/mcp")
+    is_message_with_session = request.url.path.startswith("/mcp/messages") and request.query_params.get("session_id")
+    
+    if is_mcp and not is_message_with_session:
         settings = get_settings()
         if settings.jct_api_key:
             auth_header = request.headers.get("authorization")
