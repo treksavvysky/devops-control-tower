@@ -106,27 +106,43 @@ app.include_router(cwom_router)
 from fastapi.responses import JSONResponse
 from .mcp import server as mcp_server
 
-@app.middleware("http")
-async def mcp_auth_middleware(request: Request, call_next):
-    is_mcp = request.url.path.startswith("/mcp")
-    is_message_with_session = request.url.path.startswith("/mcp/messages") and request.query_params.get("session_id")
-    
-    if is_mcp and not is_message_with_session:
-        settings = get_settings()
-        if settings.jct_api_key:
-            auth_header = request.headers.get("authorization")
-            token = None
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header[7:]
-            if not token:
-                token = request.query_params.get("api_key")
+class McpAuthMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            from starlette.requests import Request
+            from starlette.responses import JSONResponse
+            from devops_control_tower.config import get_settings
+
+            request = Request(scope, receive)
+            path = request.url.path
             
-            if token != settings.jct_api_key:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid or missing API key"}
-                )
-    return await call_next(request)
+            is_mcp = path.startswith("/mcp")
+            is_message_with_session = path.startswith("/mcp/messages") and request.query_params.get("session_id")
+            
+            if is_mcp and not is_message_with_session:
+                settings = get_settings()
+                if settings.jct_api_key:
+                    auth_header = request.headers.get("authorization")
+                    token = None
+                    if auth_header and auth_header.startswith("Bearer "):
+                        token = auth_header[7:]
+                    if not token:
+                        token = request.query_params.get("api_key")
+                    
+                    if token != settings.jct_api_key:
+                        response = JSONResponse(
+                            status_code=401,
+                            content={"detail": "Invalid or missing API key"}
+                        )
+                        await response(scope, receive, send)
+                        return
+
+        await self.app(scope, receive, send)
+
+app.add_middleware(McpAuthMiddleware)
 
 # Mount MCP SSE Server
 app.mount("/mcp", mcp_server.sse_app())
