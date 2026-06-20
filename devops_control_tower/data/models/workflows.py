@@ -4,7 +4,7 @@ Workflow models for the DevOps Control Tower.
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -60,7 +60,7 @@ class WorkflowStep:
     async def execute(self, context: Dict[str, Any]) -> Any:
         """Execute this workflow step."""
         self.status = StepStatus.RUNNING
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.attempts += 1
 
         try:
@@ -70,7 +70,7 @@ class WorkflowStep:
             )
 
             self.status = StepStatus.COMPLETED
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             return self.result
 
         except asyncio.TimeoutError:
@@ -160,7 +160,7 @@ class Workflow:
             raise RuntimeError(f"Workflow {self.name} is already running")
 
         self.status = WorkflowStatus.RUNNING
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.current_step_index = 0
         self.execution_context = context.copy()
         self.execution_count += 1
@@ -182,7 +182,7 @@ class Workflow:
                 self.execution_context[f"step_{step.name}_result"] = step_result
 
             self.status = WorkflowStatus.COMPLETED
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
 
             # Set final result as the context
             self.result = self.execution_context
@@ -191,14 +191,14 @@ class Workflow:
         except Exception as e:
             self.status = WorkflowStatus.FAILED
             self.error = str(e)
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
             raise
 
     async def cancel(self) -> None:
         """Cancel the workflow execution."""
         if self.status == WorkflowStatus.RUNNING:
             self.status = WorkflowStatus.CANCELLED
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(timezone.utc)
 
     async def _check_dependencies(self, step: WorkflowStep) -> bool:
         """Check if all dependencies for a step are satisfied."""

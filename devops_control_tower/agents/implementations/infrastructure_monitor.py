@@ -5,7 +5,7 @@ Infrastructure Monitoring Agent - First concrete AI agent implementation.
 import asyncio
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
 from ...config import get_settings
@@ -152,7 +152,7 @@ class InfrastructureMonitoringAgent(AIAgent):
         variance = random.uniform(-5, 15)
 
         metrics: Dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "cpu_percent": max(0, min(100, base_cpu + variance)),
             "memory_percent": max(0, min(100, base_memory + variance * 0.5)),
             "disk_percent": max(0, min(100, base_disk + variance * 0.2)),
@@ -220,12 +220,12 @@ class InfrastructureMonitoringAgent(AIAgent):
         cooldown_minutes = 15  # Don't repeat alerts within 15 minutes
 
         if alert_type not in self.alert_cooldown:
-            self.alert_cooldown[alert_type] = datetime.utcnow()
+            self.alert_cooldown[alert_type] = datetime.now(timezone.utc)
             return True
 
-        time_since_last = datetime.utcnow() - self.alert_cooldown[alert_type]
+        time_since_last = datetime.now(timezone.utc) - self.alert_cooldown[alert_type]
         if time_since_last > timedelta(minutes=cooldown_minutes):
-            self.alert_cooldown[alert_type] = datetime.utcnow()
+            self.alert_cooldown[alert_type] = datetime.now(timezone.utc)
             return True
 
         return False

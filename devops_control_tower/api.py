@@ -103,6 +103,31 @@ app.add_middleware(
 # Include CWOM routes
 app.include_router(cwom_router)
 
+from fastapi.responses import JSONResponse
+from .mcp import server as mcp_server
+
+@app.middleware("http")
+async def mcp_auth_middleware(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        settings = get_settings()
+        if settings.jct_api_key:
+            auth_header = request.headers.get("authorization")
+            token = None
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+            if not token:
+                token = request.query_params.get("api_key")
+            
+            if token != settings.jct_api_key:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing API key"}
+                )
+    return await call_next(request)
+
+# Mount MCP SSE Server
+app.mount("/mcp", mcp_server.sse_app())
+
 
 @app.get("/openapi-gpt.json", tags=["system"], include_in_schema=False)
 async def gpt_openapi_spec(server: Optional[str] = None):

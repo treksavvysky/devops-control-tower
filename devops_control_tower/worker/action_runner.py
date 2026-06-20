@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -99,7 +99,7 @@ class StubActionRunner(ActionRunner):
         3. Creates a log artifact
         4. Returns success
         """
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
 
         self.logger.info(
             "action_start",
@@ -113,7 +113,7 @@ class StubActionRunner(ActionRunner):
             # Later: actual action implementations
             result_data = self._simulate_action(action_name, inputs)
 
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             duration_ms = int((completed_at - started_at).total_seconds() * 1000)
 
             self.logger.info(
@@ -148,7 +148,7 @@ class StubActionRunner(ActionRunner):
             )
 
         except Exception as e:
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             self.logger.error(
                 "action_failed",
                 action_name=action_name,
@@ -266,7 +266,7 @@ class HttpActionRunner(ActionRunner):
         For Sprint-0, this falls back to stub behavior.
         In later sprints, this will make actual HTTP calls.
         """
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
 
         self.logger.info(
             "http_action_start",

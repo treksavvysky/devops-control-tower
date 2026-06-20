@@ -13,6 +13,7 @@ from devops_control_tower.data.models.workflows import Workflow
 
 class TestAgent(BaseAgent):
     """Test agent for testing purposes."""
+    __test__ = False
 
     events_handled: List[Event]
 

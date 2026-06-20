@@ -4,7 +4,7 @@ Base agent class for all AI agents in the DevOps Control Tower.
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -48,7 +48,7 @@ class BaseAgent(ABC):
         try:
             await self._initialize()
             self.status = AgentStatus.RUNNING
-            self.started_at = datetime.utcnow()
+            self.started_at = datetime.now(timezone.utc)
             logger.info(f"Agent started successfully: {self.name}")
         except Exception as e:
             self.status = AgentStatus.ERROR
@@ -102,7 +102,7 @@ class BaseAgent(ABC):
         """Get the current status of the agent."""
         uptime: Optional[float] = None
         if self.started_at:
-            uptime = (datetime.utcnow() - self.started_at).total_seconds()
+            uptime = (datetime.now(timezone.utc) - self.started_at).total_seconds()
 
         return {
             "name": self.name,

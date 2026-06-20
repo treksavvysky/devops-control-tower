@@ -279,7 +279,7 @@ class CWOMRepoModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "Repo",
             "id": self.id,
             "trace_id": self.trace_id,
             "name": self.name,
@@ -378,7 +378,7 @@ class CWOMIssueModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "Issue",
             "id": self.id,
             "trace_id": self.trace_id,
             "repo": {
@@ -498,7 +498,7 @@ class CWOMContextPacketModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "ContextPacket",
             "id": self.id,
             "trace_id": self.trace_id,
             "for_issue": {
@@ -579,7 +579,7 @@ class CWOMConstraintSnapshotModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "ConstraintSnapshot",
             "id": self.id,
             "trace_id": self.trace_id,
             "scope": self.scope,
@@ -665,7 +665,7 @@ class CWOMDoctrineRefModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "DoctrineRef",
             "id": self.id,
             "trace_id": self.trace_id,
             "namespace": self.namespace,
@@ -786,7 +786,7 @@ class CWOMRunModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "Run",
             "id": self.id,
             "trace_id": self.trace_id,
             "for_issue": {
@@ -882,7 +882,7 @@ class CWOMArtifactModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "Artifact",
             "id": self.id,
             "trace_id": self.trace_id,
             "produced_by": {
@@ -989,7 +989,7 @@ class CWOMEvidencePackModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "EvidencePack",
             "id": self.id,
             "trace_id": self.trace_id,
             "for_run": {
@@ -1110,7 +1110,7 @@ class CWOMReviewDecisionModel(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary matching CWOM Pydantic schema."""
         return {
-            "kind": self.kind,
+            "kind": self.kind or "ReviewDecision",
             "id": self.id,
             "trace_id": self.trace_id,
             "for_evidence_pack": {

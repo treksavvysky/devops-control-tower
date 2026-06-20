@@ -4,7 +4,7 @@ Database services for DevOps Control Tower.
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
@@ -105,7 +105,7 @@ class EventService:
         event.status = status
         if processed_by:
             event.processed_by = processed_by
-            event.processed_at = datetime.utcnow()
+            event.processed_at = datetime.now(timezone.utc)
         if result:
             event.result = result
         if error:
@@ -189,7 +189,7 @@ class WorkflowService:
             return None
 
         workflow.status = status
-        workflow.last_executed_at = datetime.utcnow()
+        workflow.last_executed_at = datetime.now(timezone.utc)
 
         if status == "running":
             workflow.execution_count += 1
@@ -259,11 +259,11 @@ class AgentService:
             return None
 
         agent.status = status
-        agent.last_activity_at = datetime.utcnow()
+        agent.last_activity_at = datetime.now(timezone.utc)
 
         if status == "running":
-            agent.started_at = datetime.utcnow()
-            agent.last_heartbeat = datetime.utcnow()
+            agent.started_at = datetime.now(timezone.utc)
+            agent.last_heartbeat = datetime.now(timezone.utc)
 
         if health_status:
             agent.health_status = health_status
@@ -280,8 +280,8 @@ class AgentService:
         if not agent:
             return None
 
-        agent.last_heartbeat = datetime.utcnow()
-        agent.last_activity_at = datetime.utcnow()
+        agent.last_heartbeat = datetime.now(timezone.utc)
+        agent.last_activity_at = datetime.now(timezone.utc)
 
         self.db.commit()
         return agent
@@ -403,7 +403,7 @@ class TaskService:
         task.status = status
 
         # Update timestamps based on status
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if status == "queued" and not task.queued_at:
             task.queued_at = now
         elif status == "running" and not task.started_at:
@@ -526,8 +526,8 @@ class JobService:
 
         job.status = "claimed"
         job.worker_id = worker_id
-        job.claimed_at = datetime.utcnow()
-        job.updated_at = datetime.utcnow()
+        job.claimed_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(timezone.utc)
 
         self.db.commit()
         self.db.refresh(job)
@@ -558,8 +558,8 @@ class JobService:
             return None
 
         job.status = "running"
-        job.started_at = datetime.utcnow()
-        job.updated_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(timezone.utc)
 
         self.db.commit()
         self.db.refresh(job)
@@ -576,8 +576,8 @@ class JobService:
             return None
 
         job.status = "completed"
-        job.completed_at = datetime.utcnow()
-        job.updated_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(timezone.utc)
         if result:
             job.result = result
 
@@ -597,8 +597,8 @@ class JobService:
             return None
 
         job.status = "failed"
-        job.completed_at = datetime.utcnow()
-        job.updated_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(timezone.utc)
         job.error = error
         if result:
             job.result = result

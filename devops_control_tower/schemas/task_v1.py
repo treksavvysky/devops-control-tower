@@ -112,8 +112,8 @@ class TaskCreateLegacyV1(BaseModel):
 
         return self
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "version": "1.0",
                 "idempotency_key": "2025-12-08T14:05:00Z-devops-ctl-001",
@@ -143,6 +143,7 @@ class TaskCreateLegacyV1(BaseModel):
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }
+    )
 
 
 class TargetV1(BaseModel):
@@ -150,8 +151,7 @@ class TargetV1(BaseModel):
     ref: constr(min_length=1, max_length=256) = "main"
     path: constr(max_length=512) = ""
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class TaskCreateV1(BaseModel):
@@ -184,9 +184,9 @@ class TaskCreateV1(BaseModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        extra = "forbid"
-        json_schema_extra = {
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
             "example": {
                 "version": "1.0",
                 "idempotency_key": "demo-001",
@@ -212,3 +212,4 @@ class TaskCreateV1(BaseModel):
                 "metadata": {"tags": ["stage-1", "api"]},
             }
         }
+    )

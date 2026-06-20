@@ -7,7 +7,7 @@ AI agents, workflows, and integrations across the platform.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from ..agents.base import BaseAgent
@@ -160,5 +160,5 @@ class Orchestrator:
             },
             "running_tasks": len(self.running_tasks),
             "queue_size": self.event_queue.qsize(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }

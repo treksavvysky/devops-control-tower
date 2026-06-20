@@ -12,6 +12,10 @@ from urllib.parse import urlparse
 
 database_url = os.environ.get('DATABASE_URL', '')
 
+if database_url and ('sqlite' in database_url or database_url.startswith('sqlite')):
+    print("SQLite database URL detected. Skipping PostgreSQL readiness check.")
+    sys.exit(0)
+
 if database_url:
     # Parse DATABASE_URL
     parsed = urlparse(database_url)
@@ -54,5 +58,9 @@ print("ERROR: PostgreSQL did not become ready in time")
 sys.exit(1)
 PYTHON_SCRIPT
 
-echo "Starting DevOps Control Tower..."
-exec python -m devops_control_tower.main
+if [ $# -eq 0 ]; then
+    echo "Starting DevOps Control Tower..."
+    exec python -m devops_control_tower.main
+else
+    exec "$@"
+fi

@@ -12,18 +12,21 @@ Its job is to manage, execute, and record the flow of tasks through the system, 
 
 Once the spine is proven, the rest of the tower (agents, workflows, observability) becomes incremental muscle layered on top.
 
-## Project Status (2026-01-26)
+## Project Status (2026-02-15)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Task API (`/tasks/enqueue`) | ✅ Complete | Stage 1 done |
 | Policy Gate | ✅ Complete | Validates tasks before persistence |
-| CWOM v0.1 Schemas | ✅ Complete | 7 Pydantic models |
+| CWOM v0.1 Schemas | ✅ Complete | 9 Pydantic models (including EvidencePack & ReviewDecision) |
 | CWOM v0.1 DB Models | ✅ Complete | SQLAlchemy + 6 join tables |
 | CWOM API Endpoints | ✅ Complete | Full REST API under `/cwom` |
 | Task-CWOM Integration | ✅ Complete | Bidirectional mapping |
-| Worker Loop | 🔄 In Progress | Sprint-0 implementation |
+| Worker Loop | ✅ Complete | Sprint-0 implementation complete |
 | AuditLog | ✅ Complete | Forensics & event sourcing for all CWOM operations |
+| JCT MCP Server | ✅ Complete | 12 tools for Claude Code integration |
+| CI Verification | ✅ Complete | Fresh DB migrations verified in GitHub Actions |
+| Integration Tests | ✅ Complete | 55 integration tests for full CRUD & causality |
 
 ---
 
@@ -68,6 +71,8 @@ Once the spine is proven, the rest of the tower (agents, workflows, observabilit
 | `CWOMDoctrineRefModel` | `cwom_doctrine_refs` | Governance rules |
 | `CWOMRunModel` | `cwom_runs` | Execution attempts |
 | `CWOMArtifactModel` | `cwom_artifacts` | Run outputs |
+| `CWOMEvidencePackModel` | `cwom_evidence_packs` | Proof of correctness (verdict) |
+| `CWOMReviewDecisionModel` | `cwom_review_decisions` | Merge gate approval decision |
 
 Plus 6 join tables for many-to-many relationships.
 
@@ -78,9 +83,9 @@ Plus 6 join tables for many-to-many relationships.
 
 ### 4. Worker Loop (Sprint-0)
 - Picks next queued task
-- Executes handler
-- Writes trace folder: `input.json`, `log.txt`, `output.json`
-- Location: `/app/logs/<task_id>/...`
+- Executes handler via StubExecutor
+- Writes trace folder: `manifest.json`, `events.jsonl`, `trace.log`, `artifacts/output.md`, `evidence/verdict.json`
+- Location: configured `JCT_TRACE_ROOT` base path (default `file:///var/lib/jct/runs/{run_id}/`)
 - Propagates `trace_id` for end-to-end causality
 
 ### 5. Database
@@ -90,6 +95,7 @@ Plus 6 join tables for many-to-many relationships.
 
 ### 6. Docker Compose
 - `control-tower` - FastAPI runtime
+- `worker` - Independent worker process
 - `postgres` - Database
 - `redis` - Optional, not required for v0
 - Entry: `python -m devops_control_tower.main`
@@ -119,10 +125,11 @@ Do not work on these until the spine is validated.
 - `_process_events()` exists (stub)
 - Task enqueue inserts DB row and returns ID
 
-### C. Worker loop 🔄
+### C. Worker loop ✅
 - Picks pending tasks
-- Executes handler
-- Writes trace directory with `trace_id` propagation
+- Executes handler (StubExecutor for v0)
+- Writes trace directory, generates evidence, evaluates review policy
+- Propagates `trace_id` for end-to-end causality
 
 ### D. Clean startup ✅
 - No abstract class instantiation
@@ -161,13 +168,13 @@ Only after all of these are true should work proceed to v1 and beyond.
 
 ## Canonical Work Object Model (CWOM) v0.1
 
-CWOM bridges the task spine to a richer work representation with 7 canonical object types and explicit causality.
+CWOM bridges the task spine to a richer work representation with 9 canonical object types and explicit causality.
 
-**Current Status:** Phase 4 Complete, Phase 1 Remediation Complete
+**Current Status:** Phase 4 Complete, Phase 1 Remediation Complete, Phase 3 Integration Tests Complete, Phase 4 CI Verification Complete
 
 ### Causality Chain
 ```
-Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
+Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack → ReviewDecision
 ```
 
 ### Object Types
@@ -175,11 +182,13 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 |--------|---------|
 | **Repo** | Work container (codebase, docs base, project boundary) |
 | **Issue** | Unit of intent (what we want) |
-| **ContextPacket** | Versioned briefing (immutable) |
+| **ContextPacket** | Versioned briefings (immutable) |
 | **ConstraintSnapshot** | Operating envelope (immutable) |
 | **DoctrineRef** | Governing rules |
 | **Run** | Execution attempt |
-| **Artifact** | Output of a Run with verification |
+| **Artifact** | Output of a Run |
+| **EvidencePack** | Proof that Run outputs meet acceptance criteria |
+| **ReviewDecision** | Approval decision for an EvidencePack |
 
 ### Implementation Status
 
@@ -196,10 +205,6 @@ Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact
 1. ~~**trace_id mismatch**~~ ✅ All 7 CWOM models now have `trace_id` column
 2. ~~**Two migration directories**~~ ✅ Consolidated to single `devops_control_tower/db/migrations/`
 3. ~~**Core tables via init_database()**~~ ✅ New migration `a1b2c3d4e5f6` creates events, workflows, agents
-
-### Remaining Issues
-
-1. **Incomplete integration tests**: Structure tests exist, not full DB round-trips (Phase 3)
 
 ### Task-CWOM Integration
 
@@ -222,6 +227,8 @@ Links: `task.cwom_issue_id` → Issue
 | `/cwom/doctrine-refs` | POST, GET | CRUD |
 | `/cwom/runs` | POST, GET, PATCH | CRUD |
 | `/cwom/artifacts` | POST, GET | CRUD |
+| `/cwom/evidence-packs` | GET | CRUD |
+| `/cwom/reviews` | POST, GET | CRUD |
 
 ---
 
@@ -264,8 +271,6 @@ All CWOM service methods accept `actor_kind`, `actor_id`, and `trace_id` paramet
 
 ## Next Steps (Priority Order)
 
-1. ~~**Fix trace_id model mismatch**~~ ✅ Complete
-2. ~~**Implement AuditLog**~~ ✅ Complete (Phase 2)
-3. **Complete Worker Loop** - Sprint-0 task execution
-4. **Add integration tests** - Full DB round-trips with relationships (Phase 3)
-5. **Fresh DB verification** - Script created at `scripts/verify_db_fresh.sh`, needs CI integration (Phase 4)
+1. **Implement Real Executor (Claude Code)** - Replace `StubExecutor` with `ClaudeCodeExecutor` using subprocess calling `claude` CLI
+2. **Setup Workspace Management** - Prepare repository checkouts for executor runs (git clones/worktrees)
+3. **Refine Acceptance Criteria & Evidence Verification** - Leverage LLM-based verification for v1

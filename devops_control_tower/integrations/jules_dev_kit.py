@@ -6,7 +6,7 @@ and the Jules Dev Kit, enabling advanced AI-powered development workflows.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -390,7 +390,7 @@ Format as JSON with clear sections.
                 "repository": repo,
                 "analytics": analytics,
                 "ai_insights": ai_insights,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:
             logger.error(f"Failed to get development insights for {repo}: {e}")

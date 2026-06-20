@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 # Set test environment variables BEFORE importing application code
-os.environ.setdefault("JCT_ALLOWED_REPO_PREFIXES", "testorg/")
+os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "testorg/"
 
 from devops_control_tower.core.orchestrator import Orchestrator
 from devops_control_tower.data.models.events import Event, EventPriority, EventTypes

@@ -3,7 +3,7 @@ Event models for the DevOps Control Tower.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -49,7 +49,7 @@ class Event:
         self.priority = priority
         self.tags = tags or {}
         self.status = EventStatus.PENDING
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
         self.processed_at: Optional[datetime] = None
         self.processed_by: Optional[str] = None
         self.result: Optional[Dict[str, Any]] = None
@@ -58,7 +58,7 @@ class Event:
     def mark_processing(self, processor: str) -> None:
         """Mark the event as being processed."""
         self.status = EventStatus.PROCESSING
-        self.processed_at = datetime.utcnow()
+        self.processed_at = datetime.now(timezone.utc)
         self.processed_by = processor
 
     def mark_completed(self, result: Optional[Dict[str, Any]] = None) -> None:

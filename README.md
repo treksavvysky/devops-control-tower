@@ -5,19 +5,18 @@
 A next-generation DevOps orchestration platform that integrates and manages all your AI development tools, workflows, and infrastructure from a single control plane.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![codecov](https://codecov.io/gh/your-org/devops-control-tower/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/devops-control-tower)
 
-## 🎯 Vision
+## 🎯 Vision & v0 Spine
 
-DevOps Control Tower serves as the **nerve center** for modern AI-powered development operations, orchestrating:
+DevOps Control Tower serves as the **nerve center** for modern AI-powered development operations. The project is currently focused on the **v0 Spine**—the minimal viable path through task intake, execution, proof evaluation, and review gating, turning fuzzy human/agent intent into audited, deterministic work.
 
-- **Jules Dev Kit** and other AI development tools
-- **Infrastructure management** across clouds and on-premises
-- **CI/CD pipelines** with intelligent automation
-- **Monitoring and observability** with predictive insights
-- **Security and compliance** with automated enforcement
-- **Team collaboration** and resource allocation
+```
+/tasks/enqueue → Create DB row → Worker picks → Executes (Stub) → Writes trace folder → Prove & Review Gating
+```
+
+Once the spine is proven, the rest of the tower (observability, multi-agent workflows) becomes incremental muscle layered on top.
 
 ## 🏗 Architecture
 
@@ -25,234 +24,152 @@ DevOps Control Tower serves as the **nerve center** for modern AI-powered develo
 ┌─────────────────────────────────────────────────────────────┐
 │                    DevOps Control Tower                     │
 ├─────────────────────────────────────────────────────────────┤
-│  🎛️  Command Center Dashboard & Orchestration Engine      │
+│  🎛️  FastAPI REST API (/tasks/enqueue, /tasks/{id})         │
 ├─────────────────────────────────────────────────────────────┤
-│  🤖  AI Agents Layer                                       │
-│     ├── Infrastructure Agent    ├── Security Agent         │
-│     ├── Development Agent       ├── Monitoring Agent       │
-│     └── Deployment Agent        └── Compliance Agent       │
+│  🤖  JCT Worker Loop (Atomic Claims, Trace Folders)         │
 ├─────────────────────────────────────────────────────────────┤
-│  🔗  Integration Layer                                     │
-│     ├── Jules Dev Kit           ├── Git Autobot            │
-│     ├── SSH Manager             ├── MCP Servers            │
-│     └── Cloud Providers         └── Monitoring Tools       │
+│  🔗  Canonical Work Object Model (CWOM) v0.1                │
+│     ├── Repo, Issue, ContextPacket, ConstraintSnapshot, DR  │
+│     └── Run, Artifact, EvidencePack, ReviewDecision         │
 ├─────────────────────────────────────────────────────────────┤
-│  📊  Data & Analytics Layer                               │
-│     ├── Metrics Collection      ├── Predictive Analytics  │
-│     ├── Cost Optimization       ├── Performance Insights  │
-│     └── Security Scanning       └── Compliance Reporting  │
-└─────────────────────────────────────────────────────────────┘
+│  📊  AuditLog & DB Layer (SQLite / PostgreSQL)              │
+│     └── Forensics & Event Sourcing for state changes        │
+├─────────────────────────────────────────────────────────────┘
 ```
 
 ## 🚀 Core Features
 
-### 🎛️ Centralized Orchestration
-- **Unified Dashboard**: Single pane of glass for all development operations
-- **Workflow Automation**: Intelligent automation of complex DevOps workflows
-- **Resource Management**: Dynamic allocation and optimization of resources
-- **Event-Driven Architecture**: Real-time response to infrastructure and code events
+### 🎛️ Centralized Task Intake & Policy Gate
+- **Governed Enqueueing**: API validates time budget, repo permissions, and blocks network/secrets access before persistence.
+- **Task-CWOM Mapping**: Ingestion automatically creates matching work objects.
+- **Idempotency**: Prevents duplicate executions via client-supplied idempotency keys.
 
-### 🤖 AI-Powered Operations
-- **Predictive Scaling**: ML-driven infrastructure scaling decisions
-- **Intelligent Monitoring**: Anomaly detection and automated remediation
-- **Code Quality Insights**: Continuous analysis and improvement suggestions
-- **Security Automation**: Proactive threat detection and response
+### 🤖 Worker Loop (Sprint-0)
+- **Atomic Claiming**: Uses optimistic locking to prevent double-claiming by concurrent workers.
+- **Trace Storage**: Writes structured manifests, execution logs, and output artifacts under `/var/lib/jct/runs/{run_id}/` (configurable URI).
+- **Prover & Review Gate**: Evaluates execution outputs against acceptance criteria to generate an `EvidencePack` and trigger auto-approval or manual `ReviewDecision`.
 
-### 🔧 Tool Integration Hub
-- **Jules Dev Kit Integration**: Deep integration with your AI development toolkit
-- **Multi-Cloud Management**: AWS, Azure, GCP, and hybrid cloud support
-- **CI/CD Orchestration**: Jenkins, GitHub Actions, GitLab CI, and custom pipelines
-- **Monitoring Stack**: Prometheus, Grafana, ELK, and custom metrics
+### 🔗 JCT MCP Server
+- **Claude Code Integration**: Exposes 12 lifecycle, creation, observation, and review tools directly to Claude Code.
+- **Agent Executions**: Lets agents list, claim, work, and complete JCT tasks natively.
 
-### 📈 Analytics & Insights
-- **Performance Metrics**: Real-time and historical performance analysis
-- **Cost Optimization**: Automated cost tracking and optimization recommendations
-- **Team Productivity**: Developer experience and productivity metrics
-- **Compliance Reporting**: Automated compliance and audit reporting
+### 📊 Audit Log
+- **Event Sourcing**: Automatically captures `created`, `updated`, `status_changed`, `linked`, and `unlinked` events for all CWOM objects with before/after state snapshots.
 
 ## 🛠 Technology Stack
 
 ### Backend Core
-- **Python 3.13+** with FastAPI/Django
-- **Kubernetes** for container orchestration
-- **Redis** for caching and pub/sub
-- **PostgreSQL** for relational data
-- **InfluxDB** for time-series metrics
+- **Python 3.10+** (Python 3.12 recommended)
+- **FastAPI** for API routes
+- **SQLAlchemy 2.0** with **Alembic** migrations
+- **PostgreSQL** (production) or **SQLite** (development)
+- **Redis** for celery/broker tasks (optional)
 
-### AI & ML
-- **LangChain** for AI agent orchestration
-- **OpenAI/Claude APIs** for intelligent automation
-- **MLflow** for ML model management
-- **Scikit-learn** for predictive analytics
-
-### Frontend
-- **React/Next.js** for the control dashboard
-- **D3.js** for data visualization
-- **WebSocket** for real-time updates
-- **Material-UI** for consistent design
-
-### Infrastructure
-- **Terraform** for infrastructure as code
-- **Ansible** for configuration management
-- **Docker** for containerization
-- **Helm** for Kubernetes deployments
+### AI & Integrations
+- **Model Context Protocol (MCP)** for Claude Code integration
+- **LangChain / OpenAI / Claude APIs** (future phases)
 
 ## 📁 Project Structure
 
 ```
 devops-control-tower/
-├── core/                          # Core orchestration engine
-│   ├── agents/                    # AI agent implementations
-│   ├── orchestrator/              # Main orchestration logic
-│   ├── workflows/                 # Workflow definitions
-│   └── integrations/              # Tool integrations
-├── dashboard/                     # Web dashboard
-│   ├── frontend/                  # React frontend
-│   ├── backend/                   # API backend
-│   └── websockets/                # Real-time communication
-├── agents/                        # Specialized AI agents
-│   ├── infrastructure/            # Infrastructure management
-│   ├── security/                  # Security automation
-│   ├── monitoring/                # Observability
-│   └── deployment/                # CI/CD automation
-├── integrations/                  # External tool integrations
-│   ├── jules_dev_kit/             # Jules Dev Kit integration
-│   ├── cloud_providers/           # AWS, Azure, GCP
-│   ├── monitoring/                # Prometheus, Grafana, etc.
-│   └── cicd/                      # Jenkins, GitHub Actions
-├── data/                          # Data layer
-│   ├── models/                    # Data models
-│   ├── analytics/                 # Analytics engine
-│   └── storage/                   # Data persistence
-├── infrastructure/                # Infrastructure as code
-│   ├── terraform/                 # Terraform configurations
-│   ├── kubernetes/                # K8s manifests
-│   └── ansible/                   # Configuration playbooks
-├── docs/                          # Documentation
-├── tests/                         # Test suites
-└── scripts/                       # Utility scripts
+├── devops_control_tower/          # Main application package
+│   ├── api.py                     # FastAPI router & app lifespan
+│   ├── config.py                  # Pydantic environment configuration
+│   ├── core/                      # Core orchestrator singleton
+│   ├── cwom/                      # CWOM schemas, routes, & service layers
+│   │   ├── primitives.py          # Actor, Source, Ref definitions
+│   │   ├── services.py            # Business logic validation & CRUD
+│   │   └── task_adapter.py        # Bidirectional Task-to-CWOM mapper
+│   ├── db/                        # Database connectivity & models
+│   │   ├── cwom_models.py         # CWOM SQLAlchemy tables & join tables
+│   │   ├── audit_models.py        # AuditLog table schema
+│   │   └── migrations/            # Unified Alembic migration chain
+│   ├── policy/                    # Policy gate logic (allowed operations/repos)
+│   ├── mcp.py                     # FastMCP server for Claude Code
+│   └── worker/                    # JCT Worker loop
+│       ├── loop.py                # Poll, claim, and dispatch loop
+│       ├── executor.py            # Execution drivers (StubExecutor)
+│       └── pipeline.py            # Shared prove + review logic
+├── docs/                          # Specs, test plans, and setup guides
+├── scripts/                       # CLI scripts & verification tools
+└── tests/                         # Full Pytest test suite (100+ tests)
 ```
-
-## 🎯 Phase 1: Foundation (Current)
-
-### Immediate Goals
-- [ ] Project structure and core architecture
-- [ ] Basic orchestration engine
-- [ ] Jules Dev Kit integration
-- [ ] Simple dashboard prototype
-- [ ] Infrastructure monitoring agent
-
-### Deliverables
-- [ ] Core platform skeleton
-- [ ] Jules Dev Kit connector
-- [ ] Basic metrics collection
-- [ ] Simple web interface
-- [ ] Docker containerization
-
-## 🔮 Phase 2: Intelligence (Q2 2025)
-
-### Goals
-- [ ] AI agents for infrastructure management
-- [ ] Predictive analytics engine
-- [ ] Advanced workflow automation
-- [ ] Multi-cloud integration
-- [ ] Security automation
-
-## 🌟 Phase 3: Scale (Q3-Q4 2025)
-
-### Goals
-- [ ] Enterprise features
-- [ ] Advanced AI capabilities
-- [ ] Global deployment
-- [ ] Partner integrations
-- [ ] Marketplace ecosystem
 
 ## 🚦 Getting Started
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.10+ (Python 3.12 recommended)
 - Git
-- (Optional) Docker & Docker Compose
-- (Optional) Kubernetes cluster (local or cloud)
-
-Postgres is only required when you explicitly point `DATABASE_URL` at an external
-instance. By default the project runs against a local SQLite database so no
-system packages are needed for development.
+- Docker & Docker Compose (optional)
 
 ### Quick Setup
+
+Ensure you copy the environment file and initialize the database before running the tower.
+
 ```bash
 # Clone the repository
 git clone https://github.com/treksavvysky/devops-control-tower.git
 cd devops-control-tower
 
-# Create and activate a local virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install Python dependencies
-pip install --upgrade pip
-pip install -e .
-
-# Set up configuration (defaults to local SQLite)
+# Setup virtual environment and dependencies using Poetry (recommended)
+poetry install
 cp .env.example .env
-export DATABASE_URL=${DATABASE_URL:-"sqlite:///./devops_control_tower.db"}
 
-# Run database migrations against the local database
+# Or using pip alternative
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt && pip install -e .
+cp .env.example .env
+
+# Apply migrations to create the database schema (defaults to SQLite)
 alembic upgrade head
-
-# Start the FastAPI application
-python -m devops_control_tower.main
 ```
 
-To use an external Postgres instance (e.g., on `dev-xxl`), set `DATABASE_URL`
-to the desired connection string (such as
-`postgresql+psycopg://user:password@host:5432/devops_control_tower`) before
-running migrations. Alembic automatically rewrites async drivers to synchronous
-ones during migrations.
+### Running the Services
 
-## ChatGPT Custom GPT Integration
+1. **Start the API Server**:
+   ```bash
+   python3 -m devops_control_tower.main
+   ```
+   The API will be available at `http://localhost:8000`. Exposes `/health`, `/tasks`, and `/cwom` endpoints.
+
+2. **Start the Worker**:
+   ```bash
+   python3 -m devops_control_tower.worker
+   ```
+   This will poll the database and process queued tasks.
+
+3. **Start the MCP Server**:
+   ```bash
+   python3 -m devops_control_tower.mcp
+   # Or using the command entrypoint
+   jct-mcp
+   ```
+
+### Running Tests & Verification
+
+Verify the entire setup works with:
+```bash
+# Run the test suite
+pytest
+
+# Verify Alembic migration path is clean and linear on a fresh DB
+bash scripts/verify_db_fresh.sh
+```
+
+## 🤖 ChatGPT Custom GPT Integration
 
 You can connect a ChatGPT custom GPT to the Control Tower so it can submit and track tasks via natural language. See the full setup guide:
-
 **[docs/chatgpt-custom-gpt-setup.md](docs/chatgpt-custom-gpt-setup.md)**
-
-## Integration with Jules Dev Kit
-
-The Control Tower is designed to leverage and enhance your existing Jules Dev Kit:
-
-- **Issue Management**: Automatically create infrastructure issues based on monitoring alerts
-- **Code Generation**: Generate infrastructure code and deployment scripts
-- **Analytics**: Combine development metrics with infrastructure metrics
-- **Workflows**: Automate deployment of code changes through the entire pipeline
-
-## 📈 Metrics & KPIs
-
-Track what matters most:
-
-- **Infrastructure Efficiency**: Resource utilization, cost per deployment
-- **Development Velocity**: Lead time, deployment frequency, MTTR
-- **Security Posture**: Vulnerability detection, compliance score
-- **Team Productivity**: Developer experience metrics, bottleneck analysis
 
 ## 🛡️ Security & Compliance
 
-- **Zero Trust Architecture**: Assume breach, verify everything
-- **Automated Compliance**: SOC2, GDPR, HIPAA compliance automation
-- **Security Scanning**: Continuous vulnerability assessment
-- **Audit Trails**: Complete audit logs for all operations
-
-## 📞 Support & Community
-
-- **Documentation**: [docs.devops-control-tower.com](https://docs.devops-control-tower.com)
-- **Issues**: [GitHub Issues](https://github.com/treksavvysky/devops-control-tower/issues)
-- **Discord**: [Community Discord](https://discord.gg/devops-control-tower)
-- **Email**: support@devops-control-tower.com
+- **Policy Gating**: Strict enforcement of time budgets, operation filters, and repo prefixes.
+- **Secrets & Network Isolation**: Blocked by default in v0 to ensure security boundaries.
+- **Audit Trails**: Full transaction/history log in the `audit_log` table for compliance audits.
 
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-**🏗️ Built to orchestrate the future of development operations**
