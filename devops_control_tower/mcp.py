@@ -1034,16 +1034,22 @@ def jct_list_pending_reviews(limit: int = 10) -> str:
 )
 def jct_enqueue_task(
     objective: str,
-    operation: str,
-    target_repo: str,
+    operation: Optional[str] = None,
+    type: Optional[str] = None,
+    target_repo: Optional[str] = None,
+    repo: Optional[str] = None,
     target_ref: str = "main",
+    ref: Optional[str] = None,
     target_path: str = "",
+    path: Optional[str] = None,
+    target: Optional[Dict[str, Any]] = None,
     time_budget_seconds: int = 3600,
     priority: str = "P2",
     acceptance_criteria: Optional[List[str]] = None,
     context_summary: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     create_cwom: bool = True,
+    **kwargs,
 ) -> str:
     """Submit a new task to the queue."""
     db = _get_db()
@@ -1057,6 +1063,29 @@ def jct_enqueue_task(
 
         trace_id = str(uuid.uuid4())
 
+        # Resolve operation
+        actual_operation = operation or type or kwargs.get("operation") or kwargs.get("type")
+        if not actual_operation:
+            return _error("INVALID_PARAMETERS", "Either 'operation' or 'type' must be provided.")
+
+        # Resolve target repo, ref, path
+        actual_repo = target_repo or repo or kwargs.get("repo") or kwargs.get("target_repo")
+        actual_ref = target_ref or ref or kwargs.get("ref") or kwargs.get("target_ref") or "main"
+        actual_path = target_path or path or kwargs.get("path") or kwargs.get("target_path") or ""
+
+        if isinstance(target, dict):
+            actual_repo = actual_repo or target.get("repo") or target.get("repository")
+            actual_ref = actual_ref or target.get("ref") or actual_ref
+            actual_path = actual_path or target.get("path") or actual_path
+
+        if not actual_repo:
+            return _error("INVALID_PARAMETERS", "Either 'target_repo', 'repo', or 'target.repo' must be provided.")
+
+        # Resolve constraints
+        constraints_dict = kwargs.get("constraints")
+        if isinstance(constraints_dict, dict):
+            time_budget_seconds = constraints_dict.get("time_budget_seconds") or time_budget_seconds
+
         # Build task spec
         task_data = {
             "version": "1.0",
@@ -1066,20 +1095,20 @@ def jct_enqueue_task(
                 "label": "Claude Code (MCP)",
             },
             "objective": objective,
-            "operation": operation,
+            "operation": actual_operation,
             "target": {
-                "repo": target_repo,
-                "ref": target_ref,
-                "path": target_path,
+                "repo": actual_repo,
+                "ref": actual_ref,
+                "path": actual_path,
             },
             "constraints": {
                 "time_budget_seconds": time_budget_seconds,
                 "allow_network": False,
                 "allow_secrets": False,
             },
-            "inputs": {},
-            "acceptance_criteria": acceptance_criteria or [],
-            "metadata": {},
+            "inputs": kwargs.get("inputs") or kwargs.get("payload") or {},
+            "acceptance_criteria": acceptance_criteria or kwargs.get("acceptance_criteria") or [],
+            "metadata": kwargs.get("metadata") or {},
         }
         if idempotency_key:
             task_data["idempotency_key"] = idempotency_key
