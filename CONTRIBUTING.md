@@ -79,14 +79,23 @@ We use several tools to maintain code quality:
 - **Black** for code formatting
 - **isort** for import sorting
 - **flake8** for linting
-- **mypy** for type checking
+- **mypy** for type checking (not enforced)
+
+Black, isort and flake8 run through pre-commit at the versions pinned in
+`.pre-commit-config.yaml`, the same versions CI uses. Don't run separately
+installed copies: other versions format differently.
 
 Run all checks:
 ```bash
-black .
-isort .
-flake8 .
-mypy devops_control_tower
+pre-commit run --all-files     # black, isort, flake8 (what CI's lint job runs)
+mypy devops_control_tower      # optional
+```
+
+flake8 is configured in `setup.cfg` only. Large mechanical reformatting
+commits are listed in `.git-blame-ignore-revs`; to skip them in `git blame`:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
 ## Testing

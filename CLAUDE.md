@@ -44,7 +44,8 @@ pytest --cov=devops_control_tower         # With coverage (40% minimum)
 # Verify migrations on fresh DB
 bash scripts/verify_db_fresh.sh
 
-# Linting (runs in CI via pre-commit)
+# Linting (CI's lint job runs exactly this; tool versions are pinned in
+# .pre-commit-config.yaml, so don't use separately installed black/isort/flake8)
 pre-commit run --all-files                # Run all hooks (black, isort, flake8)
 mypy devops_control_tower                 # Type checking (not in pre-commit due to SQLAlchemy issues)
 ```

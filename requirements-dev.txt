@@ -2,9 +2,8 @@ pytest
 pytest-asyncio
 pytest-cov
 coverage
-black
-isort
-flake8
+# black, isort and flake8 are not listed here: pre-commit installs the versions
+# pinned in .pre-commit-config.yaml. Run them with `pre-commit run --all-files`.
 pre-commit
 mypy
 ruff
