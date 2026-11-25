@@ -1,6 +1,20 @@
 import type { Metadata } from 'next';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import Link from 'next/link';
+import { NavLink } from '@/components/ui';
+import { Icon } from '@/components/icons/Icon';
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jetbrains-mono',
+});
 
 export const metadata: Metadata = {
   title: 'DevOps Control Tower',
@@ -13,29 +27,36 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
         <div className="app-layout">
           <aside className="sidebar">
-            <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                DCT
-              </div>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Orchestrator</h2>
+            <div className="sidebar-wordmark">
+              <span className="brand-tile">DCT</span>
+              <span className="brand-name">Control Tower</span>
             </div>
-            
-            <nav style={{ display: 'flex', flexDirection: 'column' }}>
-              <Link href="/" className="nav-link">Overview</Link>
-              <Link href="/reviews" className="nav-link">Human Reviews</Link>
+
+            <nav className="stack-2" style={{ gap: 4 }}>
+              <NavLink href="/" icon="layout-dashboard">Overview</NavLink>
+              <NavLink href="/reviews" icon="eye">Review queue</NavLink>
+              <NavLink href="/design" icon="radar">Design system</NavLink>
             </nav>
-            
-            <div style={{ marginTop: 'auto', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              <strong>Jules Core</strong> - v1.0.0
+
+            <div className="sidebar-spacer" />
+
+            <div className="sidebar-user">
+              <span className="sidebar-user__avatar">
+                <Icon name="user" size={14} />
+              </span>
+              <div>
+                <div className="sidebar-user__name">Operator</div>
+                <div className="sidebar-user__role">Human review gate</div>
+              </div>
             </div>
           </aside>
-          
+
           <main className="main-content">
-            {children}
+            <div className="page">{children}</div>
           </main>
         </div>
       </body>

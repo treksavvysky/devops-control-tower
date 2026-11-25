@@ -1,0 +1,54 @@
+CLAUDE DESIGN PROJECT — DEVOPS CONTROL TOWER
+=============================================
+
+ENTRY 1: PROJECT BLURB
+----------------------
+
+DevOps Control Tower (DCT) is a command center for AI-assisted software
+delivery. It turns fuzzy intent into audited, deterministic work: tasks are
+submitted, validated against policy, executed by agents, proven with evidence,
+and gated by human review before anything lands. The dashboard is the human
+window into that pipeline — an operator console where you monitor active
+agents, watch runs stream in, inspect evidence packs (checks passed, verdicts,
+artifacts), and make the final approve/reject call on agent work.
+
+The visual language matches the mission: a dark, glassmorphic "control room"
+aesthetic — deep near-black backgrounds, translucent blurred panels, Inter
+type, and four semantic accents that carry meaning everywhere (blue =
+action/running, green = approved/passed, amber = pending/needs-changes, red =
+rejected/failed). The UI should feel calm and authoritative under load: dense
+with signal, never noisy, with status always legible at a glance — because
+every screen ultimately answers one question: is this work safe to ship?
+
+
+ENTRY 2: BRAND / STYLE NOTES
+----------------------------
+
+Brand image: Mission control, flight-deck, operator-grade. Calm authority.
+Precision without coldness. Trustworthy automation with a human hand on the
+final lever. High signal, zero noise.
+
+Style & mood: Dark-mode only. Glassmorphism — frosted translucent panels
+(backdrop-blur), soft 16px radii, deep layered shadows, subtle radial glows in
+blue and green at screen edges. Quiet surfaces, luminous accents.
+Gradient-filled action buttons with faint colored glow. Pill-shaped uppercase
+status badges. Subtle motion: gentle fade-in on page load, restrained hover
+lift only on interactive cards. Nothing bounces, nothing shouts.
+
+Typography: Inter. Tight-tracked bold headlines with a white-to-gray gradient
+fade; regular-weight body; small uppercase letter-spaced labels for statuses
+and metadata. Big confident stat numbers (2.5rem bold) in accent colors.
+
+Color palette:
+- Background: near-black blue-gray #0f1115
+- Surfaces: translucent charcoal rgba(25,28,36,0.65) over blur; hairline
+  borders rgba(255,255,255,0.08)
+- Text: soft white #f0f2f5, secondary gray #9da3ad, muted #6b7280
+- Accents (strictly semantic): electric blue #3b82f6 = primary/action/running;
+  emerald #10b981 = success/approved; amber #f59e0b = warning/pending review;
+  red #ef4444 = danger/rejected
+- Accents appear as solid gradients on buttons, 15%-opacity tints with
+  matching borders on badges and callouts
+
+Feel to avoid: playful, pastel, skeuomorphic, corporate-beige, cluttered
+dashboards, neon cyberpunk excess.

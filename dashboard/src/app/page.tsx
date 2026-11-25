@@ -1,38 +1,50 @@
-import Link from "next/link";
+import { Badge, Button, Card, PageHeader, Stat } from '@/components/ui';
 
 export default function Home() {
   return (
-    <div className="animate-fade-in">
-      <div className="header">
-        <h1>Command Center</h1>
-        <p>Monitor system health and pending agent tasks.</p>
-      </div>
+    <div>
+      <PageHeader
+        title="Command center"
+        subtitle="Monitor system health and pending agent tasks."
+      />
 
-      <div className="grid-cols-3">
-        <div className="glass-panel" style={{ padding: '2rem' }}>
-          <h3 className="text-muted mb-2">Active Agents</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-blue)' }}>12</div>
-          <div className="text-sm text-muted mt-4">Running in isolated contexts</div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '2rem' }}>
-          <h3 className="text-muted mb-2">Pending Reviews</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-yellow)' }}>Wait</div>
-          <div className="text-sm mt-4">
-            <Link href="/reviews" className="btn btn-primary" style={{ textDecoration: 'none' }}>Go to Queue</Link>
+      <div className="stack-5">
+        <Card>
+          <div className="grid-cols-3">
+            <Stat
+              label="Active agents"
+              value={12}
+              accent="blue"
+              detail="Running in isolated contexts"
+            />
+            <Stat
+              label="Pending reviews"
+              value="—"
+              accent="amber"
+              detail={
+                <Button href="/reviews" variant="secondary" size="sm" icon="eye">
+                  Open review queue
+                </Button>
+              }
+            />
+            <Stat
+              label="Tasks completed"
+              value="1,432"
+              accent="green"
+              detail="In the last 7 days"
+            />
           </div>
-        </div>
+        </Card>
 
-        <div className="glass-panel" style={{ padding: '2rem' }}>
-          <h3 className="text-muted mb-2">Tasks Completed</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-green)' }}>1,432</div>
-          <div className="text-sm text-muted mt-4">In the last 7 days</div>
-        </div>
-      </div>
-
-      <div className="mt-4 glass-panel" style={{ padding: '2rem' }}>
-        <h3 className="mb-4">Recent Activity</h3>
-        <p className="text-muted">Orchestrator log streaming goes here...</p>
+        <Card
+          title="Recent activity"
+          subtitle="Streaming from all agents"
+          action={<Badge status="running" dot pulse>Live</Badge>}
+        >
+          <p className="text-sm text-muted" style={{ margin: 0 }}>
+            Orchestrator log streaming goes here.
+          </p>
+        </Card>
       </div>
     </div>
   );

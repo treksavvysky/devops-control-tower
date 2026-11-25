@@ -1,0 +1,23 @@
+/* DCT — Spacing & radii. */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii — soft, consistent */
+  --radius-sm: 8px;     /* inputs, small controls */
+  --radius-md: 12px;    /* buttons, nested panels */
+  --radius-lg: 16px;    /* cards, dialogs — the signature radius */
+  --radius-pill: 999px; /* status badges, tags */
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --content-max: 1280px;
+}

@@ -1,0 +1,39 @@
+/* DCT — Effects: glass, shadows, glows, motion. */
+:root {
+  /* Glass */
+  --blur-glass: blur(16px); /* @kind other */
+  --blur-glass-heavy: blur(24px); /* @kind other */
+
+  /* Layered shadows — deep, soft */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-raised: 0 2px 4px rgba(0, 0, 0, 0.35), 0 16px 48px rgba(0, 0, 0, 0.45);
+  --shadow-overlay: 0 4px 8px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  /* Accent glows — under gradient buttons, active states */
+  --glow-blue: 0 0 20px rgba(59, 130, 246, 0.35);
+  --glow-green: 0 0 20px rgba(16, 185, 129, 0.35);
+  --glow-red: 0 0 20px rgba(239, 68, 68, 0.35);
+
+  /* Ambient page glows — radial, screen edges */
+  --ambient-blue: radial-gradient(600px 400px at 15% 0%, rgba(59, 130, 246, 0.08), transparent 70%); /* @kind color */
+  --ambient-green: radial-gradient(600px 400px at 85% 100%, rgba(16, 185, 129, 0.06), transparent 70%); /* @kind color */
+
+  /* Motion — gentle, nothing bounces */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --duration-fast: 150ms; /* @kind other */
+  --duration-base: 250ms; /* @kind other */
+  --duration-slow: 400ms; /* @kind other */
+
+  /* Hover lift for interactive cards */
+  --lift-hover: translateY(-2px); /* @kind other */
+}
+
+@keyframes dct-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dct-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}

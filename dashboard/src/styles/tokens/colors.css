@@ -1,0 +1,55 @@
+/* DCT — Color tokens. Dark-mode only. Accents are strictly semantic. */
+:root {
+  /* Base backgrounds */
+  --bg-0: #0f1115;            /* app background, near-black blue-gray */
+  --bg-1: #13161c;            /* raised opaque background (rare) */
+  --bg-inset: #0a0c10;        /* wells, code blocks, terminal panes */
+
+  /* Glass surfaces */
+  --surface-glass: rgba(25, 28, 36, 0.65);   /* primary frosted panel, over blur */
+  --surface-glass-2: rgba(32, 36, 46, 0.55); /* nested panel / hover raise */
+  --surface-solid: #191c24;                  /* fallback when blur unavailable */
+
+  /* Hairlines & borders */
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text */
+  --text-1: #f0f2f5;          /* primary, soft white */
+  --text-2: #9da3ad;          /* secondary gray */
+  --text-3: #6b7280;          /* muted / metadata */
+  --text-on-accent: #ffffff;
+
+  /* Semantic accents — the only saturated colors in the system */
+  --accent-blue: #3b82f6;     /* primary / action / running */
+  --accent-green: #10b981;    /* success / approved / passed */
+  --accent-amber: #f59e0b;    /* warning / pending review / needs changes */
+  --accent-red: #ef4444;      /* danger / rejected / failed */
+
+  /* 15% tints — badge & callout fills */
+  --tint-blue: rgba(59, 130, 246, 0.15);
+  --tint-green: rgba(16, 185, 129, 0.15);
+  --tint-amber: rgba(245, 158, 11, 0.15);
+  --tint-red: rgba(239, 68, 68, 0.15);
+
+  /* 40% borders — pair with matching tint */
+  --line-blue: rgba(59, 130, 246, 0.4);
+  --line-green: rgba(16, 185, 129, 0.4);
+  --line-amber: rgba(245, 158, 11, 0.4);
+  --line-red: rgba(239, 68, 68, 0.4);
+
+  /* Action gradients — button fills */
+  --grad-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); /* @kind color */
+  --grad-green: linear-gradient(135deg, #10b981 0%, #059669 100%); /* @kind color */
+  --grad-red: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); /* @kind color */
+
+  /* Semantic aliases */
+  --surface-card: var(--surface-glass);
+  --text-body: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-muted: var(--text-3);
+  --color-running: var(--accent-blue);
+  --color-approved: var(--accent-green);
+  --color-pending: var(--accent-amber);
+  --color-rejected: var(--accent-red);
+}

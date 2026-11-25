@@ -1,0 +1,33 @@
+/* DCT — Typography. Inter everywhere; mono for run IDs, hashes, logs. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* Scale */
+  --text-xs: 0.6875rem;   /* 11px — uppercase labels, badge text */
+  --text-sm: 0.8125rem;   /* 13px — metadata, table cells */
+  --text-base: 0.9375rem; /* 15px — body */
+  --text-md: 1.0625rem;   /* 17px — card titles */
+  --text-lg: 1.375rem;    /* 22px — section headings */
+  --text-xl: 1.75rem;     /* 28px — page titles */
+  --text-2xl: 2.5rem;     /* 40px — stat numbers, hero headlines */
+
+  /* Weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+
+  /* Tracking */
+  --tracking-tight: -0.025em;  /* headlines */
+  --tracking-label: 0.08em;    /* uppercase labels & badges */
+
+  /* Headline gradient — white fading to gray */
+  --grad-headline: linear-gradient(180deg, #f0f2f5 0%, #9da3ad 100%); /* @kind color */
+
+  --leading-tight: 1.15;
+  --leading-body: 1.6;
+}
