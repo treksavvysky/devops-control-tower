@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 
 from ..db.models import TaskModel
 from ..db.services import ArtifactService, JobService, TaskService
+from ..lifecycle import LifecycleError
+from ..lifecycle import claim as lifecycle_claim
+from ..lifecycle import finish as lifecycle_finish
 from .action_runner import StubActionRunner
 
 logger = structlog.get_logger()
@@ -67,8 +70,7 @@ class Worker:
         task_logger = self.logger.bind(trace_id=trace_id, task_id=task_id)
         task_logger.info("task_process_start", operation=task.operation)
 
-        # Initialize services
-        task_service = TaskService(db)
+        # Initialize services (task state changes go through the lifecycle module)
         job_service = JobService(db)
         artifact_service = ArtifactService(db)
 
@@ -86,8 +88,24 @@ class Worker:
 
         task_logger.info("job_claimed")
 
-        # Step 3: Mark task and job as running
-        task_service.update_task_status(task_id, "running", assigned_to=self.worker_id)
+        # Step 3: Claim the task through the lifecycle module (queued → running,
+        # new claim generation, lease), then start the job (DEVOPS-CON-11)
+        from datetime import datetime, timezone
+
+        from .leases import lease_expiry
+
+        now = datetime.now(timezone.utc)
+        token = lifecycle_claim(
+            db,
+            task_id,
+            self.worker_id,
+            lease_expiry(task.time_budget_seconds, now),
+            now,
+        )
+        if token is None:
+            task_logger.error("task_claim_failed")
+            job_service.fail_job(job_id, error="task not claimable (not queued)")
+            return {"error": "Task not claimable"}
         job = job_service.start_job(job_id)
         task_logger.info("task_running")
 
@@ -145,12 +163,9 @@ class Worker:
 
             # Step 6: Update task and job status based on result
             if action_result.success:
+                lifecycle_finish(db, token, True, result=action_result.result)
+                db.commit()
                 job = job_service.complete_job(job_id, result=action_result.result)
-                task_service.update_task_status(
-                    task_id,
-                    "completed",
-                    result=action_result.result,
-                )
                 task_logger.info("task_completed")
             else:
                 job = job_service.fail_job(
@@ -158,12 +173,14 @@ class Worker:
                     error=action_result.error or "Unknown error",
                     result=action_result.result,
                 )
-                task_service.update_task_status(
-                    task_id,
-                    "failed",
+                lifecycle_finish(
+                    db,
+                    token,
+                    False,
                     error=action_result.error,
                     result=action_result.result,
                 )
+                db.commit()
                 task_logger.info("task_failed", error=action_result.error)
 
             return {
@@ -179,9 +196,15 @@ class Worker:
         except Exception as e:
             task_logger.exception("task_process_error", error=str(e))
 
-            # Mark job and task as failed
+            # Mark job and task as failed (task only if this claim is still live)
+            db.rollback()
             job_service.fail_job(job_id, error=str(e))
-            task_service.update_task_status(task_id, "failed", error=str(e))
+            try:
+                lifecycle_finish(db, token, False, error=str(e))
+                db.commit()
+            except LifecycleError as stale:
+                db.rollback()
+                task_logger.warning("task_result_discarded", code=stale.code)
 
             # Create error artifact
             error_artifact = artifact_service.create_artifact(

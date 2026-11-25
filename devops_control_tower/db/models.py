@@ -123,6 +123,9 @@ class TaskModel(Base):
     # Execution details
     assigned_to = Column(String(100), nullable=True)
     lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Incremented by every claim; lifecycle writes compare on it so a stale
+    # holder or a stale reaper can never act on a newer claim (DEVOPS-CON-11, N1)
+    claim_generation = Column(Integer, nullable=False, default=0, server_default="0")
     # Expired lease whose holder's termination could not be confirmed (DEVOPS-CON-11)
     held_at = Column(DateTime(timezone=True), nullable=True)
     held_reason = Column(Text, nullable=True)
@@ -179,6 +182,7 @@ class TaskModel(Base):
             "lease_expires_at": self.lease_expires_at.isoformat()
             if self.lease_expires_at
             else None,
+            "claim_generation": self.claim_generation,
             "held_at": self.held_at.isoformat() if self.held_at else None,
             "held_reason": self.held_reason,
             "result": self.result,

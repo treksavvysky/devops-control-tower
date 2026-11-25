@@ -109,32 +109,37 @@ def _process_expired_leases(db) -> dict:
         return {"held": [], "requeued": []}
 
 
-def _check_claim_held(db, task, actor: str, claim) -> Optional[str]:
-    """Return an error response if `actor` no longer holds the claim on `task`."""
-    from devops_control_tower.db.cwom_models import CWOMRunModel
+def _claim_token(task_id: str, actor: str, claim_generation, claim):
+    """Resolve the caller's claim token, failing closed.
 
-    if task.status != "running":
-        return _error(
-            "TASK_NOT_RUNNING",
-            f"Task '{task.id}' is not running (current status: {task.status}).",
+    The generation comes from the explicit ``claim_generation`` argument or
+    from this server's in-memory claim. After a restart there is no in-memory
+    claim, so the executor must pass the ``claim_generation`` it received from
+    ``jct_claim_task``. We never adopt "whatever the database currently says",
+    which would let a stale holder act on a newer claim.
+    """
+    from devops_control_tower.lifecycle import ClaimToken
+
+    gen = claim_generation
+    if gen is None and claim:
+        gen = claim.get("claim_generation")
+    if gen is None:
+        return None, _error(
+            "CLAIM_TOKEN_REQUIRED",
+            f"No claim generation known for task '{task_id}' in this session.",
+            "Pass the claim_generation returned by jct_claim_task.",
         )
-    if task.assigned_to != actor:
-        return _error(
-            "CLAIM_NOT_HELD",
-            f"Task '{task.id}' is claimed by '{task.assigned_to}', not '{actor}'.",
+    try:
+        gen = int(gen)
+    except (TypeError, ValueError):
+        return None, _error(
+            "CLAIM_TOKEN_REQUIRED", "claim_generation must be an integer."
         )
-    if claim:
-        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
-        if run is None or run.status != "running":
-            _active_claims.pop(str(task.id), None)
-            reason = (run.failure or {}).get("code") if run is not None else None
-            return _error(
-                "CLAIM_LOST",
-                f"The claim on task '{task.id}' is no longer active"
-                + (f" ({reason})." if reason else "."),
-                "Use jct_list_tasks and claim the task again.",
-            )
-    return None
+    return ClaimToken(task_id=str(task_id), actor=actor, generation=gen), None
+
+
+def _lifecycle_error(exc) -> str:
+    return _error(exc.code, exc.message, "Use jct_list_tasks and claim the task again.")
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +253,6 @@ def jct_claim_task(task_id: str) -> str:
     """Claim a queued task for execution."""
     db = _get_db()
     try:
-        from sqlalchemy import text
-
         from devops_control_tower.config import get_settings
         from devops_control_tower.db.audit_service import AuditService
         from devops_control_tower.db.cwom_models import (
@@ -272,10 +275,8 @@ def jct_claim_task(task_id: str) -> str:
 
         _process_expired_leases(db)
 
-        from devops_control_tower.worker.leases import (
-            CLAIM_TIMESTAMP_BINDS,
-            lease_expiry,
-        )
+        from devops_control_tower.lifecycle import claim as lifecycle_claim
+        from devops_control_tower.worker.leases import lease_expiry
 
         # Find the task
         try:
@@ -297,30 +298,12 @@ def jct_claim_task(task_id: str) -> str:
                 "Use jct_list_tasks to find another available task.",
             )
 
-        # Atomically claim (optimistic locking) with a lease
+        # Atomic claim through the lifecycle module: queued → running, new
+        # claim generation, lease (DEVOPS-CON-11)
         now = datetime.now(timezone.utc)
         lease_expires_at = lease_expiry(task.time_budget_seconds, now)
-        result = db.execute(
-            text(
-                """
-                UPDATE tasks
-                SET status = 'running',
-                    started_at = :started_at,
-                    assigned_to = :worker_id,
-                    lease_expires_at = :lease_expires_at
-                WHERE id = :task_id AND status = 'queued'
-            """
-            ).bindparams(*CLAIM_TIMESTAMP_BINDS),
-            {
-                "task_id": str(task.id),
-                "started_at": now,
-                "worker_id": actor,
-                "lease_expires_at": lease_expires_at,
-            },
-        )
-        db.commit()
-
-        if result.rowcount == 0:
+        token = lifecycle_claim(db, str(task.id), actor, lease_expires_at, now)
+        if token is None:
             return _error(
                 "TASK_ALREADY_CLAIMED",
                 f"Task '{task_id}' was claimed by another worker.",
@@ -425,6 +408,7 @@ def jct_claim_task(task_id: str) -> str:
                     "run_id": run_id,
                     "trace_uri": trace_uri,
                     "store": store,
+                    "claim_generation": token.generation,
                 }
 
                 # Write initial manifest
@@ -447,6 +431,7 @@ def jct_claim_task(task_id: str) -> str:
             run_id=run_id,
             trace_id=task.trace_id,
             executor=actor,
+            claim_generation=token.generation,
             lease_expires_at=lease_expires_at.isoformat(),
             objective=task.objective,
             operation=task.operation,
@@ -557,8 +542,13 @@ def jct_report_artifact(
     content: Optional[str] = None,
     uri: Optional[str] = None,
     media_type: str = "text/plain",
+    claim_generation: Optional[int] = None,
 ) -> str:
-    """Report an artifact produced during execution."""
+    """Report an artifact produced during execution.
+
+    Requires a live claim: this actor, this claim generation, lease not
+    expired. Checked directly, not via the lease reaper.
+    """
     # Validate artifact_type against the CWOM enum
     from devops_control_tower.cwom.enums import ArtifactType
 
@@ -596,9 +586,20 @@ def jct_report_artifact(
                 "Use jct_claim_task first.",
             )
 
-        held_error = _check_claim_held(db, task, actor, claim)
-        if held_error:
-            return held_error
+        if task.status != "running":
+            return _error(
+                "TASK_NOT_RUNNING",
+                f"Task '{task_id}' is not running (current status: {task.status}).",
+            )
+        token, token_error = _claim_token(task_id, actor, claim_generation, claim)
+        if token_error:
+            return token_error
+        from devops_control_tower.lifecycle import LifecycleError, require_live_claim
+
+        try:
+            require_live_claim(db, token)
+        except LifecycleError as exc:
+            return _lifecycle_error(exc)
 
         run_id = claim["run_id"]
         store = claim.get("store")
@@ -700,8 +701,14 @@ def jct_complete_task(
     summary: str,
     outputs: Optional[str] = None,
     error_message: Optional[str] = None,
+    claim_generation: Optional[int] = None,
 ) -> str:
-    """Complete a claimed task and trigger prove/review."""
+    """Complete a claimed task and trigger prove/review.
+
+    The task transition is one conditional update (this actor, this claim
+    generation, status running, lease not expired); nothing else is written
+    unless it succeeds. An expired claim fails closed even if no lease reaper ran.
+    """
     actor = _actor_id()
     if not actor:
         return _actor_missing_error()
@@ -720,9 +727,14 @@ def jct_complete_task(
             return _error("TASK_NOT_FOUND", f"Task '{task_id}' not found.")
 
         claim = _get_active_claim(task_id, db)
-        held_error = _check_claim_held(db, task, actor, claim)
-        if held_error:
-            return held_error
+        if task.status != "running":
+            return _error(
+                "TASK_NOT_RUNNING",
+                f"Task '{task_id}' is not running (current status: {task.status}).",
+            )
+        token, token_error = _claim_token(task_id, actor, claim_generation, claim)
+        if token_error:
+            return token_error
 
         now = datetime.now(timezone.utc)
 
@@ -735,13 +747,21 @@ def jct_complete_task(
                 outputs_dict = {"raw": outputs}
         outputs_dict["summary"] = summary
 
-        # Update task
-        task.status = "completed" if success else "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.result = outputs_dict
-        if not success and error_message:
-            task.error = error_message
+        # Task transition first, atomically; refuse everything else if it fails
+        from devops_control_tower.lifecycle import LifecycleError, finish
+
+        try:
+            finish(
+                db,
+                token,
+                success,
+                result=outputs_dict,
+                error=error_message if (not success and error_message) else None,
+                now=now,
+            )
+        except LifecycleError as exc:
+            return _lifecycle_error(exc)  # nothing was written
+        db.refresh(task)
 
         response: Dict[str, Any] = {
             "task_id": str(task.id),

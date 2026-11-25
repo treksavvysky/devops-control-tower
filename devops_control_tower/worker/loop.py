@@ -18,9 +18,8 @@ import signal
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -34,8 +33,11 @@ from ..db.cwom_models import (
     CWOMRunModel,
 )
 from ..db.models import TaskModel
+from ..lifecycle import ClaimToken, LifecycleError
+from ..lifecycle import claim as lifecycle_claim
+from ..lifecycle import finish as lifecycle_finish
 from .executor import ExecutionContext, ExecutionResult, get_executor
-from .leases import CLAIM_TIMESTAMP_BINDS, lease_expiry, process_expired_leases
+from .leases import lease_expiry, process_expired_leases
 from .pipeline import apply_review_policy, run_prove
 from .storage import create_trace_store, get_trace_uri
 
@@ -64,6 +66,8 @@ class WorkerLoop:
         self.claim_limit = claim_limit or self.settings.worker_claim_limit
         self.running = False
         self.worker_id = f"worker-{uuid.uuid4().hex[:8]}"
+        # task_id -> ClaimToken for claims this worker holds (DEVOPS-CON-11)
+        self._claims: Dict[str, ClaimToken] = {}
 
         logger.info(
             f"Worker initialized: id={self.worker_id}, "
@@ -154,33 +158,20 @@ class WorkerLoop:
         if task is None:
             return None
 
-        # Atomically claim it (optimistic locking), with a lease
-        # Only update if status is still 'queued'
+        # Atomic claim through the lifecycle module (new claim generation, lease)
         now = datetime.now(timezone.utc)
-        result = db.execute(
-            text(
-                """
-                UPDATE tasks
-                SET status = 'running',
-                    started_at = :started_at,
-                    assigned_to = :worker_id,
-                    lease_expires_at = :lease_expires_at
-                WHERE id = :task_id AND status = 'queued'
-            """
-            ).bindparams(*CLAIM_TIMESTAMP_BINDS),
-            {
-                "task_id": str(task.id),
-                "started_at": now,
-                "worker_id": self.worker_id,
-                "lease_expires_at": lease_expiry(task.time_budget_seconds, now),
-            },
+        token = lifecycle_claim(
+            db,
+            str(task.id),
+            self.worker_id,
+            lease_expiry(task.time_budget_seconds, now),
+            now,
         )
-        db.commit()
-
-        if result.rowcount == 0:
+        if token is None:
             # Another worker claimed it
             logger.debug(f"Task {task.id} claimed by another worker")
             return None
+        self._claims[str(task.id)] = token
 
         # Refresh to get updated values
         db.refresh(task)
@@ -195,6 +186,21 @@ class WorkerLoop:
         """
         run: Optional[CWOMRunModel] = None
         store = None
+
+        # Don't start work on a claim that is no longer live (e.g. held after
+        # lease expiry while this worker was busy); nothing is created.
+        token = self._claims.get(str(task.id))
+        if token is None:
+            logger.error("No claim token for task %s; not processing", task.id)
+            return
+        try:
+            from ..lifecycle import require_live_claim
+
+            require_live_claim(db, token)
+        except LifecycleError as exc:
+            self._claims.pop(str(task.id), None)
+            logger.warning("Not processing task %s: %s", task.id, exc.code)
+            return
 
         try:
             # Create CWOM Run if task has linked issue
@@ -414,6 +420,64 @@ class WorkerLoop:
         if context.constraint_snapshot:
             store.write_json("constraints.json", context.constraint_snapshot)
 
+    def _finish_or_discard(
+        self,
+        db: Session,
+        task: TaskModel,
+        run: Optional[CWOMRunModel],
+        store,
+        success: bool,
+        **kw,
+    ) -> bool:
+        """Finish the task through the lifecycle module, or discard a stale result.
+
+        Returns True if this worker still held the claim and the task is now
+        completed or failed. Otherwise nothing is written: the task (e.g. held
+        after lease expiry), its run and issue stay as they are, and the trace
+        records that the result was discarded.
+        """
+        token = self._claims.pop(str(task.id), None)
+        if token is None:
+            logger.error("No claim token for task %s; refusing to finish it", task.id)
+            return False
+        try:
+            lifecycle_finish(db, token, success, **kw)
+        except LifecycleError as exc:
+            db.rollback()
+            logger.warning(
+                "Discarding result for task %s: %s (%s)", task.id, exc.code, exc.message
+            )
+            if run is not None:
+                # This worker's own run ended without a valid claim: record that
+                # (conditional on the run still being 'running'; never touches the task)
+                db.query(CWOMRunModel).filter(
+                    CWOMRunModel.id == run.id, CWOMRunModel.status == "running"
+                ).update(
+                    {
+                        "status": "failed",
+                        "failure": {
+                            "code": exc.code,
+                            "message": f"Result discarded: {exc.message}",
+                        },
+                    },
+                    synchronize_session=False,
+                )
+                db.commit()
+            if store:
+                store.append_event(
+                    {
+                        "event": "result_discarded",
+                        "code": exc.code,
+                        "reason": exc.message,
+                    }
+                )
+                store.append_line(
+                    "trace.log", f"RESULT DISCARDED: {exc.code}: {exc.message}"
+                )
+            return False
+        db.refresh(task)
+        return True
+
     def _handle_result(
         self,
         db: Session,
@@ -458,17 +522,21 @@ class WorkerLoop:
             },
             "telemetry": result.telemetry,
         }
+        # Task transition first, atomically (this worker, this claim generation,
+        # still running, lease not expired). If it fails, discard the result.
+        if not self._finish_or_discard(
+            db,
+            task,
+            run,
+            store,
+            result.success,
+            result=result.outputs,
+            error=None if result.success else result.error_message,
+            trace_path=store.get_uri(),
+            now=now,
+        ):
+            return
         store.write_json("manifest.json", manifest)
-
-        # Update task
-        task.status = "completed" if result.success else "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.result = result.outputs
-        task.trace_path = store.get_uri()
-
-        if not result.success:
-            task.error = result.error_message
 
         # Update CWOM Run if exists
         if run:
@@ -569,11 +637,18 @@ class WorkerLoop:
         """
         now = datetime.now(timezone.utc)
 
-        # Update task
-        task.status = "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.error = error
+        # Task transition first, atomically; discard if the claim was lost
+        if not self._finish_or_discard(
+            db,
+            task,
+            run,
+            store,
+            False,
+            error=error,
+            trace_path=store.get_uri() if store else None,
+            now=now,
+        ):
+            return
 
         # Write error to trace if store available
         if store:
@@ -596,7 +671,6 @@ class WorkerLoop:
                 "error": error,
             }
             store.write_json("manifest.json", manifest)
-            task.trace_path = store.get_uri()
 
         # Update CWOM Run if exists
         if run:

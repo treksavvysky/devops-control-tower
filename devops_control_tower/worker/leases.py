@@ -13,13 +13,21 @@ So an expired lease is processed like this:
   the task is requeued (the holding run fails with ``LEASE_EXPIRED``);
 * otherwise, which is always the case today since DCT has no substrate client
   yet, the task is **held**: status ``held``, run ``blocked``, reason recorded.
-  Writes from the previous holder are refused (the task is no longer
-  ``running``). An operator resolves it with :func:`resolve_held_task`.
+  An operator resolves it with :func:`resolve_held_task`.
 
-Transitions are compare-and-set on (id, status, assigned_to), never on
-timestamp equality: SQLite stores timestamps written by raw SQL in a
-different text format than the ORM binds, so timestamp equality silently
-never matched there (DEVOPS-CON-10).
+The reaper is *not* what fences a stale holder. Completion refuses an expired
+lease by itself (see :func:`devops_control_tower.lifecycle.finish`), so an
+expired claim fails closed even if this reaper never runs or fails.
+
+State changes go through :mod:`devops_control_tower.lifecycle`: one conditional
+UPDATE on (id, status, claim_generation) plus the lease condition. Never on
+timestamp equality (DEVOPS-CON-10), and never on holder identity alone, which
+isn't unique per claim (ABA; PR #12 review N1).
+
+Operator authorization: :func:`resolve_held_task` records the operator ID it
+is given but does not *verify* it. Anyone who can run ``dct-held`` against the
+DCT database (including an agent with a shell on that host) can resolve a
+hold. Operator authentication is DEVOPS-CON-5.
 """
 
 from __future__ import annotations
@@ -28,13 +36,18 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
-from sqlalchemy import DateTime, bindparam
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db.audit_service import AuditService
 from ..db.cwom_models import CWOMIssueModel, CWOMRunModel
 from ..db.models import TaskModel
+from ..lifecycle import (
+    LifecycleError,
+    hold_expired,
+    requeue_after_confirmed_termination,
+    resolve_held,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +56,6 @@ LEASE_EXPIRED = "LEASE_EXPIRED"
 #: Called with an expired task; returns True only if the previous holder's
 #: execution is confirmed terminated. Any exception counts as "not confirmed".
 TerminationConfirmer = Callable[[TaskModel], bool]
-
-#: Typed bind parameters for raw-SQL claim UPDATEs, so timestamps are stored in
-#: the same format the ORM uses (DEVOPS-CON-10).
-CLAIM_TIMESTAMP_BINDS = (
-    bindparam("started_at", type_=DateTime(timezone=True)),
-    bindparam("lease_expires_at", type_=DateTime(timezone=True)),
-)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -72,16 +78,6 @@ def is_lease_expired(task: TaskModel, now: Optional[datetime] = None) -> bool:
         return False
     now = now or datetime.now(timezone.utc)
     return _as_utc(task.lease_expires_at) <= now
-
-
-def _holder_filter(task: TaskModel):
-    """CAS guard: same task, still running, still held by the same claimant."""
-    guard = [TaskModel.id == task.id, TaskModel.status == "running"]
-    if task.assigned_to is None:
-        guard.append(TaskModel.assigned_to.is_(None))
-    else:
-        guard.append(TaskModel.assigned_to == task.assigned_to)
-    return guard
 
 
 def _runs_for(db: Session, task: TaskModel, statuses: List[str]) -> List[CWOMRunModel]:
@@ -139,28 +135,15 @@ def process_expired_leases(
             continue
         task_id = str(task.id)
         holder = task.assigned_to or "unknown"
+        gen = task.claim_generation or 0
         expired_at = _as_utc(task.lease_expires_at).isoformat()
-        confirmed = _confirmed(confirm_termination, task)
 
-        if confirmed:
-            changed = (
-                db.query(TaskModel)
-                .filter(*_holder_filter(task))
-                .update(
-                    {
-                        "status": "queued",
-                        "assigned_to": None,
-                        "started_at": None,
-                        "lease_expires_at": None,
-                    },
-                    synchronize_session=False,
-                )
-            )
-            if not changed:
+        if _confirmed(confirm_termination, task):
+            if not requeue_after_confirmed_termination(db, task, now):
                 continue
             note = (
-                f"Claim by {holder} expired at {expired_at}; termination confirmed; "
-                "task requeued"
+                f"Claim generation {gen} by {holder} expired at {expired_at}; "
+                "termination confirmed; task requeued"
             )
             audit.log_status_change(
                 entity_kind="Task",
@@ -199,23 +182,10 @@ def process_expired_leases(
             continue
 
         reason = (
-            f"Claim by {holder} expired at {expired_at}; termination of the previous "
-            "holder not confirmed; held for operator resolution"
+            f"Claim generation {gen} by {holder} expired at {expired_at}; termination "
+            "of the previous holder not confirmed; held for operator resolution"
         )
-        changed = (
-            db.query(TaskModel)
-            .filter(*_holder_filter(task))
-            .update(
-                {
-                    "status": "held",
-                    "lease_expires_at": None,
-                    "held_at": now,
-                    "held_reason": reason,
-                },
-                synchronize_session=False,
-            )
-        )
-        if not changed:
+        if not hold_expired(db, task, reason, now):
             continue
         audit.log_status_change(
             entity_kind="Task",
@@ -278,11 +248,11 @@ def resolve_held_task(
     note: str,
     termination_confirmed: bool = False,
 ) -> TaskModel:
-    """Operator resolution of a held task.
+    """Operator resolution of a held task (identity recorded, not verified).
 
     ``action="requeue"`` requires ``termination_confirmed=True``: the operator
-    asserts the previous holder is no longer running. ``action="fail"`` ends the
-    task. Both are audited with the operator's identity and note.
+    asserts the previous holder is no longer running. ``action="fail"`` ends
+    the task. Both are audited with the operator ID and note.
     """
     if action not in ("requeue", "fail"):
         raise HeldTaskError("action must be 'requeue' or 'fail'")
@@ -301,34 +271,24 @@ def resolve_held_task(
     if task.status != "held":
         raise HeldTaskError(f"task {task_id} is not held (status {task.status})")
 
-    now = datetime.now(timezone.utc)
-    if action == "requeue":
-        values = {
-            "status": "queued",
-            "assigned_to": None,
-            "started_at": None,
-            "held_at": None,
-            "held_reason": None,
-        }
-        new_status, run_status, issue_status = "queued", "failed", "planned"
-    else:
-        values = {
-            "status": "failed",
-            "completed_at": now,
-            "error": f"Held task failed by operator {operator_id}: {note}",
-        }
-        new_status, run_status, issue_status = "failed", "failed", "failed"
-
-    changed = (
-        db.query(TaskModel)
-        .filter(TaskModel.id == task.id, TaskModel.status == "held")
-        .update(values, synchronize_session=False)
-    )
+    try:
+        changed = resolve_held(db, task, action)
+    except LifecycleError as exc:
+        raise HeldTaskError(str(exc)) from exc
     if not changed:
         raise HeldTaskError(f"task {task_id} changed concurrently; not resolved")
+    if action == "fail":
+        db.query(TaskModel).filter(TaskModel.id == task.id).update(
+            {"error": f"Held task failed by operator {operator_id}: {note}"},
+            synchronize_session=False,
+        )
+    new_status = "queued" if action == "requeue" else "failed"
+    run_status = "failed"
+    issue_status = "planned" if action == "requeue" else "failed"
 
     full_note = (
-        f"Held task resolved by {operator_id}: {action}"
+        f"Held task resolved by {operator_id} (operator identity recorded, not "
+        f"verified): {action}"
         f"{' (termination confirmed by operator)' if termination_confirmed else ''}. "
         f"{note}"
     )
@@ -370,5 +330,5 @@ def resolve_held_task(
     if issue and issue.status == "blocked":
         issue.status = issue_status
     db.commit()
-    db.refresh(task)
-    return task
+    db.expire_all()
+    return db.query(TaskModel).filter(TaskModel.id == task_id).one()
