@@ -27,10 +27,14 @@ class Settings(BaseSettings):
     )
 
     # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0", validation_alias="REDIS_URL")
+    redis_url: str = Field(
+        default="redis://localhost:6379/0", validation_alias="REDIS_URL"
+    )
 
     # Security
-    secret_key: str = Field(default="your-secret-key-here", validation_alias="SECRET_KEY")
+    secret_key: str = Field(
+        default="your-secret-key-here", validation_alias="SECRET_KEY"
+    )
     access_token_expire_minutes: int = Field(
         default=30, validation_alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
@@ -44,21 +48,37 @@ class Settings(BaseSettings):
     log_format: str = Field(default="json", validation_alias="LOG_FORMAT")
 
     # AI Configuration
-    openai_api_key: Optional[str] = Field(default=None, validation_alias="OPENAI_API_KEY")
-    anthropic_api_key: Optional[str] = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    openai_api_key: Optional[str] = Field(
+        default=None, validation_alias="OPENAI_API_KEY"
+    )
+    anthropic_api_key: Optional[str] = Field(
+        default=None, validation_alias="ANTHROPIC_API_KEY"
+    )
 
     # Agent Configuration
-    max_concurrent_agents: int = Field(default=10, validation_alias="MAX_CONCURRENT_AGENTS")
-    agent_heartbeat_interval: int = Field(default=30, validation_alias="AGENT_HEARTBEAT_INTERVAL")
-    agent_timeout_seconds: int = Field(default=300, validation_alias="AGENT_TIMEOUT_SECONDS")
+    max_concurrent_agents: int = Field(
+        default=10, validation_alias="MAX_CONCURRENT_AGENTS"
+    )
+    agent_heartbeat_interval: int = Field(
+        default=30, validation_alias="AGENT_HEARTBEAT_INTERVAL"
+    )
+    agent_timeout_seconds: int = Field(
+        default=300, validation_alias="AGENT_TIMEOUT_SECONDS"
+    )
 
     # Workflow Configuration
-    max_concurrent_workflows: int = Field(default=5, validation_alias="MAX_CONCURRENT_WORKFLOWS")
-    workflow_timeout_seconds: int = Field(default=3600, validation_alias="WORKFLOW_TIMEOUT_SECONDS")
+    max_concurrent_workflows: int = Field(
+        default=5, validation_alias="MAX_CONCURRENT_WORKFLOWS"
+    )
+    workflow_timeout_seconds: int = Field(
+        default=3600, validation_alias="WORKFLOW_TIMEOUT_SECONDS"
+    )
 
     # Event Processing
     event_batch_size: int = Field(default=100, validation_alias="EVENT_BATCH_SIZE")
-    event_processing_interval: int = Field(default=5, validation_alias="EVENT_PROCESSING_INTERVAL")
+    event_processing_interval: int = Field(
+        default=5, validation_alias="EVENT_PROCESSING_INTERVAL"
+    )
 
     # Policy Configuration
     jct_allowed_repo_prefixes: str = Field(

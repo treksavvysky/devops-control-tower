@@ -104,7 +104,9 @@ app.add_middleware(
 app.include_router(cwom_router)
 
 from fastapi.responses import JSONResponse
+
 from .mcp import server as mcp_server
+
 
 class McpAuthMiddleware:
     def __init__(self, app):
@@ -114,14 +116,17 @@ class McpAuthMiddleware:
         if scope["type"] == "http":
             from starlette.requests import Request
             from starlette.responses import JSONResponse
+
             from devops_control_tower.config import get_settings
 
             request = Request(scope, receive)
             path = request.url.path
-            
+
             is_mcp = path.startswith("/mcp")
-            is_message_with_session = path.startswith("/mcp/messages") and request.query_params.get("session_id")
-            
+            is_message_with_session = path.startswith(
+                "/mcp/messages"
+            ) and request.query_params.get("session_id")
+
             if is_mcp and not is_message_with_session:
                 settings = get_settings()
                 if settings.jct_api_key:
@@ -131,16 +136,17 @@ class McpAuthMiddleware:
                         token = auth_header[7:]
                     if not token:
                         token = request.query_params.get("api_key")
-                    
+
                     if token != settings.jct_api_key:
                         response = JSONResponse(
                             status_code=401,
-                            content={"detail": "Invalid or missing API key"}
+                            content={"detail": "Invalid or missing API key"},
                         )
                         await response(scope, receive, send)
                         return
 
         await self.app(scope, receive, send)
+
 
 app.add_middleware(McpAuthMiddleware)
 

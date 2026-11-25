@@ -140,9 +140,9 @@ class TestGptOpenApiSpec:
         for path, path_item in spec["paths"].items():
             for method, operation in path_item.items():
                 if isinstance(operation, dict) and "description" in operation:
-                    assert len(operation["description"]) <= 300, (
-                        f"{method.upper()} {path} description exceeds 300 chars"
-                    )
+                    assert (
+                        len(operation["description"]) <= 300
+                    ), f"{method.upper()} {path} description exceeds 300 chars"
 
     def test_spec_param_descriptions_within_limits(self, client):
         """Parameter descriptions stay within ChatGPT's 700 char limit."""
@@ -178,8 +178,6 @@ class TestGptOpenApiSpec:
 
     def test_spec_server_url_query_param_override(self, client):
         """?server= query param overrides the configured server URL."""
-        response = client.get(
-            "/openapi-gpt.json?server=https://custom.example.com"
-        )
+        response = client.get("/openapi-gpt.json?server=https://custom.example.com")
         spec = response.json()
         assert spec["servers"][0]["url"] == "https://custom.example.com"

@@ -5,7 +5,7 @@ Infrastructure Monitoring Agent - First concrete AI agent implementation.
 import asyncio
 import logging
 import random
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from ...config import get_settings

@@ -211,5 +211,5 @@ class TaskCreateV1(BaseModel):
                 "evidence_requirements": ["test_healthz.py output", "coverage report"],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
-        }
+        },
     )

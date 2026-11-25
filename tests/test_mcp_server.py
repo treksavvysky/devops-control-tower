@@ -772,9 +772,7 @@ class TestExecutorIdentity:
         assert run.executor["worker_id"] == "Codex@codejourney"
 
         agent_rows = (
-            db.query(AuditLogModel)
-            .filter(AuditLogModel.actor_kind == "agent")
-            .all()
+            db.query(AuditLogModel).filter(AuditLogModel.actor_kind == "agent").all()
         )
         assert agent_rows
         assert all(r.actor_id != "claude-code" for r in agent_rows)
