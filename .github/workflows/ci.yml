@@ -116,8 +116,10 @@ jobs:
         flags: unittests
         name: codecov-umbrella
 
-  # Publishes an image to GHCR on pushes to main. Gated on lint AND test, so it
-  # stays dormant (as it has been since 2026-03) until the lint debt is cleared.
+  # Builds the Docker image on pushes to main to prove the Dockerfile works.
+  # It does NOT publish: nothing consumes a JCT image (George, 2026-11-25,
+  # DEVOPS-CON-4). To publish to GHCR later, add a GHCR login step, set
+  # `push: true`, and grant `packages: write`.
   build:
     needs: [lint, test]
     runs-on: ubuntu-latest
@@ -128,13 +130,6 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Extract metadata
       id: meta
@@ -147,11 +142,11 @@ jobs:
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push Docker image
+    - name: Build Docker image (not pushed)
       uses: docker/build-push-action@v5
       with:
         context: .
-        push: true
+        push: false
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
