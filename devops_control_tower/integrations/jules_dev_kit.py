@@ -1,8 +1,9 @@
 """
+[DEPRECATED - NOVEMBER 2026]
 Integration with Jules Dev Kit.
 
-This module provides seamless integration between the DevOps Control Tower
-and the Jules Dev Kit, enabling advanced AI-powered development workflows.
+Google Jules is officially deprecated and scheduled for product sunset on December 31, 2026.
+This module is retained temporarily for backward compatibility and is scheduled for deletion.
 """
 
 import logging
