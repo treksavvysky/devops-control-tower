@@ -84,7 +84,10 @@ class Settings(BaseSettings):
     jct_allowed_repo_prefixes: str = Field(
         default="",
         validation_alias="JCT_ALLOWED_REPO_PREFIXES",
-        description="Comma-separated list of allowed repository namespace prefixes (e.g., 'myorg/,anotherorg/'). Empty string = deny all.",
+        description=(
+            "Comma-separated list of allowed repository namespace prefixes "
+            "(e.g., 'myorg/,anotherorg/'). Empty string = deny all."
+        ),
     )
 
     # Worker Configuration
@@ -108,7 +111,10 @@ class Settings(BaseSettings):
     jct_api_key: Optional[str] = Field(
         default=None,
         validation_alias="JCT_API_KEY",
-        description="Static API key for external integrations (ChatGPT Actions). If unset, auth is disabled.",
+        description=(
+            "Static API key for external integrations (ChatGPT Actions). "
+            "If unset, auth is disabled."
+        ),
     )
     jct_api_base_url: str = Field(
         default="http://localhost:8000",

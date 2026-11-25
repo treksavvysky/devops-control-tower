@@ -136,7 +136,8 @@ async def init_database() -> None:
         conn.execute(sa.text("SELECT 1"))
 
     print(
-        "Database connection verified. Run 'alembic upgrade head' to ensure schema is up to date."
+        "Database connection verified. "
+        "Run 'alembic upgrade head' to ensure schema is up to date."
     )
 
 

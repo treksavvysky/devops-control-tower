@@ -6,7 +6,7 @@ Represents one execution attempt against an Issue.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, constr
@@ -33,7 +33,8 @@ class Run(BaseModel):
     - A Run MUST reference an Issue and Repo.
     - A Run SHOULD reference at least one ContextPacket once it transitions to running.
     - A Run SHOULD pin a ConstraintSnapshot at start for auditability.
-    - Run inputs/outputs SHOULD be treated as append-only; supersede by creating a new Run.
+    - Run inputs/outputs SHOULD be treated as append-only; supersede by creating
+      a new Run.
     """
 
     model_config = ConfigDict(extra="forbid")

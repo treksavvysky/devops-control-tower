@@ -12,27 +12,20 @@ from devops_control_tower.cwom import (  # Enums; Primitives; Object types; Vers
     Actor,
     ActorKind,
     Artifact,
-    ArtifactCreate,
     ArtifactType,
     ConstraintScope,
     ConstraintSnapshot,
-    ConstraintSnapshotCreate,
     ContextPacket,
-    ContextPacketCreate,
     DoctrinePriority,
     DoctrineRef,
-    DoctrineRefCreate,
     DoctrineType,
     Issue,
-    IssueCreate,
     IssueType,
     ObjectKind,
     Priority,
     Ref,
     Repo,
-    RepoCreate,
     Run,
-    RunCreate,
     RunMode,
     Source,
     Status,
@@ -254,12 +247,7 @@ class TestCausalityChain:
 
     def test_full_chain(self):
         """Test: Issue + ContextPacket + Constraints + Doctrine → Run → Artifact."""
-        from devops_control_tower.cwom import (
-            ConstraintSnapshotCreate,
-            ContextPacketCreate,
-            DoctrineRefCreate,
-            Executor,
-        )
+        from devops_control_tower.cwom import Executor
 
         # 1. Create Repo
         source = Source(system="github", external_id="myorg/myrepo")

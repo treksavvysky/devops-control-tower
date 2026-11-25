@@ -6,8 +6,7 @@ Every significant state change is recorded with before/after snapshots,
 actor information, and trace context.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from sqlalchemy import JSON, Column, DateTime, Enum, Index, String, Text
 from sqlalchemy.sql import func

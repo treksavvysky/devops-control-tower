@@ -6,7 +6,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
-from uuid import UUID
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -20,9 +19,11 @@ class TaskCreateResult:
     created: bool  # True if newly created, False if existing (idempotency hit)
 
 
-from ..data.models.events import Event
-from ..schemas.task_v1 import TaskCreateLegacyV1, TaskCreateV1
-from .models import (
+# These imports follow TaskCreateResult in the original layout; kept in place
+# (noqa) rather than reordered, to avoid changing import order.
+from ..data.models.events import Event  # noqa: E402
+from ..schemas.task_v1 import TaskCreateLegacyV1  # noqa: E402
+from .models import (  # noqa: E402
     AgentModel,
     ArtifactModel,
     EventModel,

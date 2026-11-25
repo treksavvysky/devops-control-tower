@@ -7,7 +7,7 @@ These are the building blocks used across all CWOM object types.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, constr
 

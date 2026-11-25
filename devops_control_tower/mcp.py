@@ -324,7 +324,6 @@ def jct_claim_task(task_id: str) -> str:
 
         # Create CWOM Run if task has linked issue
         run_id = None
-        run_data = None
         context_packet_data = None
         constraint_snapshot_data = None
         issue_data = None
@@ -377,13 +376,6 @@ def jct_claim_task(task_id: str) -> str:
                 )
 
                 db.commit()
-
-                run_data = {
-                    "id": run_id,
-                    "status": "running",
-                    "mode": "agent",
-                    "artifact_root_uri": trace_uri,
-                }
 
                 issue_data = {
                     "id": issue.id,
@@ -488,7 +480,6 @@ def jct_get_context(task_id: str) -> str:
         from devops_control_tower.db.cwom_models import (
             CWOMConstraintSnapshotModel,
             CWOMContextPacketModel,
-            CWOMDoctrineRefModel,
             CWOMIssueModel,
         )
         from devops_control_tower.db.models import TaskModel

@@ -3,7 +3,7 @@ SQLAlchemy models for DevOps Control Tower.
 """
 
 import uuid as uuid_module
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from sqlalchemy import (
     JSON,
@@ -16,9 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     TypeDecorator,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.sql import func
 from sqlalchemy.types import CHAR
 
@@ -408,7 +406,8 @@ class AgentModel(Base):
 
 
 # Note: The canonical TaskModel for JCT V1 Task Spec is defined above as TaskModel
-# with __tablename__ = "tasks_v1". The duplicate definition that was here has been removed.
+# with __tablename__ = "tasks_v1".
+# The duplicate definition that was here has been removed.
 
 
 class JobModel(Base):

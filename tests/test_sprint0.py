@@ -13,11 +13,11 @@ Database setup is handled by the shared fixtures in conftest.py.
 """
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from devops_control_tower.db.models import ArtifactModel, JobModel, TaskModel
+from devops_control_tower.db.models import TaskModel
 from devops_control_tower.db.services import ArtifactService, JobService, TaskService
 from devops_control_tower.worker import StubActionRunner, Worker
 
@@ -263,7 +263,7 @@ class TestWorkerTraceId:
 
         # Process the task
         worker = Worker(worker_id="test-worker")
-        result = worker.process_task(db_session, task)
+        worker.process_task(db_session, task)
 
         # Verify job was created with trace_id
         job_service = JobService(db_session)
@@ -317,7 +317,7 @@ class TestTraceIdQuery:
 
         # Create job with trace_id
         job_service = JobService(db_session)
-        job = job_service.create_job(task_id=task_id, trace_id=trace_id)
+        job_service.create_job(task_id=task_id, trace_id=trace_id)
 
         # Query by trace_id
         jobs = job_service.get_jobs_by_trace_id(trace_id)
@@ -332,13 +332,13 @@ class TestTraceIdQuery:
 
         # Create artifacts with trace_id
         artifact_service = ArtifactService(db_session)
-        artifact1 = artifact_service.create_artifact(
+        artifact_service.create_artifact(
             task_id=task_id,
             trace_id=trace_id,
             kind="log",
             content="Log entry 1",
         )
-        artifact2 = artifact_service.create_artifact(
+        artifact_service.create_artifact(
             task_id=task_id,
             trace_id=trace_id,
             kind="log",

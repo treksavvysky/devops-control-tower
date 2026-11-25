@@ -6,8 +6,8 @@ Represents a unit of intent: a problem to solve or outcome to produce.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, constr
 

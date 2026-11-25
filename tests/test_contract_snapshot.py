@@ -1,14 +1,14 @@
 """
 Contract snapshot test for JCT V1 Task Specification.
 
-This test asserts that the TaskCreateLegacyV1 Pydantic model contains all canonical fields.
+This test asserts that the TaskCreateLegacyV1 Pydantic model contains all
+canonical fields.
 If this test fails, a breaking change to the API contract has been introduced.
 
 The Pydantic model is the source of truth for the API contract, not the markdown docs.
 Any change to the model shape that causes this test to fail is a breaking change.
 """
 
-import pytest
 
 from devops_control_tower.schemas.task_v1 import TaskCreateLegacyV1
 
@@ -36,7 +36,8 @@ class TestContractSnapshot:
 
         for field in required_fields:
             assert field in properties, (
-                f"BREAKING CHANGE: Canonical field '{field}' missing from TaskCreateLegacyV1. "
+                f"BREAKING CHANGE: Canonical field '{field}' missing from "
+                "TaskCreateLegacyV1. "
                 f"The Pydantic model is the API contract source of truth."
             )
 
@@ -88,7 +89,6 @@ class TestContractSnapshot:
     def test_operation_literal_values(self):
         """Operation must accept exactly the V1 allowed values."""
         schema = TaskCreateLegacyV1.model_json_schema()
-        defs = schema.get("$defs", {})
 
         # Find the operation enum values
         # In Pydantic v2, Literal types may be in $defs or inline

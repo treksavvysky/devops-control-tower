@@ -6,13 +6,13 @@ Represents a work container (codebase/project/docs boundary).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, constr
 
 from .enums import Visibility
-from .primitives import Actor, Ref, RepoPolicy, Source, generate_ulid, utc_now
+from .primitives import Actor, RepoPolicy, Source, generate_ulid, utc_now
 
 
 class Repo(BaseModel):

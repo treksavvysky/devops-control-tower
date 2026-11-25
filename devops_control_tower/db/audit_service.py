@@ -31,7 +31,9 @@ class AuditService:
 
     Usage:
         audit = AuditService(db_session)
-        audit.log_create("Issue", issue.id, issue.to_dict(), actor_kind="agent", actor_id="worker-1")
+        audit.log_create(
+            "Issue", issue.id, issue.to_dict(), actor_kind="agent", actor_id="worker-1"
+        )
     """
 
     def __init__(self, db: Session):
@@ -400,7 +402,8 @@ class AuditService:
         """Get all audit entries for a specific action type.
 
         Args:
-            action: Action type ("created", "updated", "status_changed", "deleted", "linked", "unlinked")
+            action: Action type ("created", "updated", "status_changed",
+                "deleted", "linked", "unlinked")
             entity_kind: Optional filter by entity type
             limit: Maximum number of entries to return
             offset: Number of entries to skip

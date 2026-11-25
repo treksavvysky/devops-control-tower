@@ -14,7 +14,8 @@ objects. It defines the minimal, stable schema for:
 - EvidencePack: Proof that a Run's outputs meet acceptance criteria
 
 Causality Chain:
-    Issue + ContextPacket + ConstraintSnapshot + DoctrineRef → Run → Artifact → EvidencePack
+    Issue + ContextPacket + ConstraintSnapshot + DoctrineRef
+        → Run → Artifact → EvidencePack
 
 Spec: docs/cwom/cwom-spec-v0.1.md
 """

@@ -9,11 +9,10 @@ Design principle: treat storage as a URI, not a boolean.
 from __future__ import annotations
 
 import json
-import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from urllib.parse import urlparse
 
 

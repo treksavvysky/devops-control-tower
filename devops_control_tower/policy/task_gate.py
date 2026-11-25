@@ -7,7 +7,8 @@ or raises a PolicyError with a stable error code.
 
 Policy Rules (V1):
 - operation must be one of: code_change, docs, analysis, ops
-- target.repo must match an allowlist/prefix (configured via JCT_ALLOWED_REPO_PREFIXES env var)
+- target.repo must match an allowlist/prefix
+  (configured via JCT_ALLOWED_REPO_PREFIXES env var)
 - constraints.time_budget_seconds must be in range [30, 86400]
 - constraints.allow_network must be false (V1 denies network access)
 - constraints.allow_secrets must be false (V1 denies secrets access)
@@ -25,7 +26,6 @@ Normalization:
 
 from __future__ import annotations
 
-import re
 from typing import List, Optional
 
 from pydantic import BaseModel

@@ -435,7 +435,7 @@ class TestIdempotency:
     """Test idempotency key behavior."""
 
     def test_idempotency_key_returns_same_task_on_duplicate(self):
-        """Duplicate requests with same idempotency key return 409 with existing task."""
+        """A repeated idempotency key returns 409 with the existing task."""
         payload = make_valid_task_payload(
             idempotency_key="test-idempotent-001",
             objective="Idempotency test",
