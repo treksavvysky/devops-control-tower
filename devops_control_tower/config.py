@@ -144,6 +144,15 @@ class Settings(BaseSettings):
             "and reviews."
         ),
     )
+    jct_authorized_experiments: str = Field(
+        default="",
+        validation_alias="JCT_AUTHORIZED_EXPERIMENTS",
+        description=(
+            "Comma-separated experiment IDs (e.g. DEVOPS-CON-7) that intake accepts "
+            "as metadata.experiment. Empty = no experimental tasks admitted. Runs of "
+            "experimental tasks are never production-eligible (DEVOPS-CON-11)."
+        ),
+    )
     jct_lease_grace_seconds: int = Field(
         default=300,
         ge=0,

@@ -428,6 +428,19 @@ class Prover:
         """Create EvidencePack record in database."""
         evidence_pack_id = str(uuid.uuid4())
 
+        from .eligibility import EXPERIMENTAL_TAG, experiment_id
+
+        exp = experiment_id(task.task_metadata)
+        verdict_reason = result.verdict_reason
+        tags: list = []
+        meta: dict = {}
+        if exp:
+            verdict_reason = (
+                f"[EXPERIMENTAL {exp}: not production evidence] {verdict_reason}"
+            )
+            tags = [EXPERIMENTAL_TAG]
+            meta = {"experiment": exp, "production_eligible": False}
+
         evidence_pack = CWOMEvidencePackModel(
             id=evidence_pack_id,
             kind="EvidencePack",
@@ -437,7 +450,9 @@ class Prover:
             for_issue_id=run.for_issue_id,
             for_issue_kind="Issue",
             verdict=result.verdict,
-            verdict_reason=result.verdict_reason,
+            verdict_reason=verdict_reason,
+            tags=tags,
+            meta=meta,
             evaluated_by_kind="system",
             evaluated_by_id=self.prover_id,
             criteria_results=[

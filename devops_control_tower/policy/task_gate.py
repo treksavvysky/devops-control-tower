@@ -69,8 +69,11 @@ def _get_default_policy_config() -> "PolicyConfig":
     from devops_control_tower.config import settings
 
     allowed_prefixes = _parse_repo_prefixes(settings.jct_allowed_repo_prefixes)
+    experiments = _parse_repo_prefixes(settings.jct_authorized_experiments)
 
-    return PolicyConfig(allowed_repo_prefixes=allowed_prefixes)
+    return PolicyConfig(
+        allowed_repo_prefixes=allowed_prefixes, authorized_experiments=experiments
+    )
 
 
 # Time budget limits
@@ -89,6 +92,7 @@ class PolicyConfig(BaseModel):
     min_time_budget_seconds: int = MIN_TIME_BUDGET_SECONDS
     max_time_budget_seconds: int = MAX_TIME_BUDGET_SECONDS
     default_time_budget_seconds: int = DEFAULT_TIME_BUDGET_SECONDS
+    authorized_experiments: List[str] = []
 
 
 class PolicyError(Exception):
@@ -167,6 +171,30 @@ def _validate_time_budget(time_budget: int, config: PolicyConfig) -> None:
         )
 
 
+def _validate_experiment(metadata: Optional[dict], config: PolicyConfig) -> None:
+    """Experimental tasks must name an authorized experiment (DEVOPS-CON-11).
+
+    ``metadata.experiment`` may be an experiment ID string or ``{"id": ...}``.
+    Unknown or unauthorized experiments are refused, so a task can't mark itself
+    experimental (or escape that marking) without operator configuration.
+    """
+    if not metadata or "experiment" not in metadata:
+        return
+    raw = metadata.get("experiment")
+    exp_id = raw.get("id") if isinstance(raw, dict) else raw
+    if not isinstance(exp_id, str) or not exp_id.strip():
+        raise PolicyError(
+            code="EXPERIMENT_INVALID",
+            message="metadata.experiment must be an experiment ID or {'id': ...}.",
+        )
+    if exp_id.strip() not in config.authorized_experiments:
+        raise PolicyError(
+            code="EXPERIMENT_NOT_AUTHORIZED",
+            message=f"Experiment '{exp_id}' is not authorized "
+            "(JCT_AUTHORIZED_EXPERIMENTS).",
+        )
+
+
 def _validate_network_access(allow_network: bool) -> None:
     """V1 policy: network access is denied."""
     if allow_network:
@@ -220,6 +248,7 @@ def evaluate(
     _validate_time_budget(task.constraints.time_budget_seconds, config)
     _validate_network_access(task.constraints.allow_network)
     _validate_secrets_access(task.constraints.allow_secrets)
+    _validate_experiment(task.metadata, config)
 
     # Build normalized task
     normalized_target = Target(

@@ -938,22 +938,24 @@ class TestClaimLeases:
         assert lease <= datetime.now(timezone.utc) + timedelta(seconds=901)
         assert claim["lease_expires_at"]
 
-    def test_expired_lease_requeued_on_list(self, db, trace_dir):
+    def test_expired_lease_held_not_requeued(self, db, trace_dir):
+        """DEVOPS-CON-11: no requeue without confirmed termination; the task is held."""
         from devops_control_tower.db.audit_models import AuditLogModel
         from devops_control_tower.db.cwom_models import CWOMRunModel
 
         task_id, claim = _claimed_task(db)
         _expire_lease(db, task_id)
 
-        listed = json.loads(jct_list_tasks())
-        assert task_id in [t["task_id"] for t in listed["tasks"]]
+        listed = json.loads(jct_list_tasks())  # queued tasks only
+        assert task_id not in [t["task_id"] for t in listed["tasks"]]
 
         task = json.loads(jct_get_task(task_id))["task"]
-        assert task["status"] == "queued"
-        assert task["assigned_to"] is None
+        assert task["status"] == "held"
+        assert task["held_reason"] and "not confirmed" in task["held_reason"]
         run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
-        assert run.status == "failed"
+        assert run.status == "blocked"
         assert run.failure["code"] == "LEASE_EXPIRED"
+        assert run.failure["termination"] == "unconfirmed"
         audit = (
             db.query(AuditLogModel)
             .filter(
@@ -965,24 +967,36 @@ class TestClaimLeases:
         )
         assert any(a.actor_id.startswith("lease-reaper") for a in audit)
 
-    def test_late_completion_after_reclaim_refused(self, db, trace_dir):
+    def test_held_task_cannot_be_reclaimed_until_operator_requeues(self, db, trace_dir):
+        from devops_control_tower.worker.leases import resolve_held_task
+
         task_id, first = _claimed_task(db)
         _expire_lease(db, task_id)
+        json.loads(jct_list_tasks())  # triggers the hold
 
-        # Another executor reclaims the task
+        with _as_actor("Second@executor"):
+            blocked = json.loads(jct_claim_task(task_id))
+        assert blocked["success"] is False
+
+        resolve_held_task(
+            db,
+            task_id,
+            "requeue",
+            "george",
+            "confirmed gone",
+            termination_confirmed=True,
+        )
         with _as_actor("Second@executor"):
             second = json.loads(jct_claim_task(task_id))
         assert second["success"] is True, second
         assert second["run_id"] != first["run_id"]
 
-        # The first executor's late completion is refused
         late = json.loads(
             jct_complete_task(task_id=task_id, success=True, summary="late")
         )
         assert late["success"] is False
         assert late["error"]["code"] in ("CLAIM_NOT_HELD", "CLAIM_LOST")
 
-        # The second executor can still complete
         with _as_actor("Second@executor"):
             ok = json.loads(
                 jct_complete_task(task_id=task_id, success=True, summary="ok")
@@ -990,11 +1004,22 @@ class TestClaimLeases:
         assert ok["success"] is True, ok
 
     def test_same_actor_stale_claim_refused(self, db, trace_dir):
-        """Same identity, new session: the stale run's late completion is refused."""
+        """Same identity, new session, after operator requeue: stale run refused."""
+        from devops_control_tower.worker.leases import resolve_held_task
+
         task_id, first = _claimed_task(db)
         _expire_lease(db, task_id)
+        json.loads(jct_list_tasks())  # hold
         stale_claim = dict(_active_claims[task_id])
         _active_claims.clear()  # simulate a new session for the same identity
+        resolve_held_task(
+            db,
+            task_id,
+            "requeue",
+            "george",
+            "confirmed gone",
+            termination_confirmed=True,
+        )
         second = json.loads(jct_claim_task(task_id))
         assert second["success"] is True
         _active_claims[task_id] = stale_claim  # the old session still holds the old run
@@ -1019,11 +1044,11 @@ class TestClaimLeases:
             "CLAIM_LOST",
         )
 
-    def test_unexpired_lease_not_requeued(self, db, trace_dir):
-        from devops_control_tower.worker.leases import requeue_expired
+    def test_unexpired_lease_not_processed(self, db, trace_dir):
+        from devops_control_tower.worker.leases import process_expired_leases
 
         task_id, _ = _claimed_task(db)
-        assert requeue_expired(db) == []
+        assert process_expired_leases(db) == {"held": [], "requeued": []}
         assert json.loads(jct_get_task(task_id))["task"]["status"] == "running"
 
     def test_completion_clears_lease(self, db, trace_dir):
@@ -1036,9 +1061,9 @@ class TestClaimLeases:
 
 
 class TestWorkerLease:
-    def test_worker_claim_sets_lease_and_reaps(self, db, trace_dir):
+    def test_worker_claim_sets_lease_and_expiry_holds(self, db, trace_dir):
         from devops_control_tower.db.models import TaskModel
-        from devops_control_tower.worker.leases import requeue_expired
+        from devops_control_tower.worker.leases import process_expired_leases
         from devops_control_tower.worker.loop import WorkerLoop
 
         task_id = _seed_queued_task(db)
@@ -1049,9 +1074,8 @@ class TestWorkerLease:
         assert claimed.lease_expires_at is not None
 
         _expire_lease(db, task_id)
-        assert requeue_expired(db, actor_id=f"lease-reaper:{worker.worker_id}") == [
-            task_id
-        ]
+        out = process_expired_leases(db, actor_id=f"lease-reaper:{worker.worker_id}")
+        assert out == {"held": [task_id], "requeued": []}
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         db.refresh(task)
-        assert task.status == "queued"
+        assert task.status == "held"

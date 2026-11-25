@@ -93,16 +93,20 @@ def _executor_record(actor: str) -> Dict[str, Any]:
     return {"type": EXECUTOR_TYPE, "version": EXECUTOR_VERSION, "worker_id": actor}
 
 
-def _requeue_expired(db) -> list:
-    """Requeue expired claims; never let the reaper break the calling tool."""
-    from devops_control_tower.worker.leases import requeue_expired
+def _process_expired_leases(db) -> dict:
+    """Process expired claims (hold, or requeue on confirmed termination).
+
+    Never lets the reaper break the calling tool. No termination confirmer is
+    available in the MCP server, so expired claims are held (DEVOPS-CON-11).
+    """
+    from devops_control_tower.worker.leases import process_expired_leases
 
     try:
-        return requeue_expired(db, actor_id="lease-reaper:mcp")
+        return process_expired_leases(db, actor_id="lease-reaper:mcp")
     except Exception as exc:  # pragma: no cover - defensive
         db.rollback()
         logger.warning("Lease reaper failed: %s", exc)
-        return []
+        return {"held": [], "requeued": []}
 
 
 def _check_claim_held(db, task, actor: str, claim) -> Optional[str]:
@@ -200,7 +204,7 @@ def jct_list_tasks(
     try:
         from devops_control_tower.db.services import TaskService
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         svc = TaskService(db)
         tasks = svc.get_tasks(
@@ -266,9 +270,12 @@ def jct_claim_task(task_id: str) -> str:
         if not actor:
             return _actor_missing_error()
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
-        from devops_control_tower.worker.leases import lease_expiry
+        from devops_control_tower.worker.leases import (
+            CLAIM_TIMESTAMP_BINDS,
+            lease_expiry,
+        )
 
         # Find the task
         try:
@@ -303,7 +310,7 @@ def jct_claim_task(task_id: str) -> str:
                     lease_expires_at = :lease_expires_at
                 WHERE id = :task_id AND status = 'queued'
             """
-            ),
+            ).bindparams(*CLAIM_TIMESTAMP_BINDS),
             {
                 "task_id": str(task.id),
                 "started_at": now,
@@ -575,7 +582,7 @@ def jct_report_artifact(
         from devops_control_tower.db.cwom_models import CWOMArtifactModel
         from devops_control_tower.db.models import TaskModel
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
@@ -706,7 +713,7 @@ def jct_complete_task(
         from devops_control_tower.db.models import TaskModel
         from devops_control_tower.worker.pipeline import apply_review_policy, run_prove
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
@@ -964,7 +971,12 @@ def jct_get_evidence(run_id: str) -> str:
                 f"No evidence pack found for '{run_id}' "
                 "(searched by run ID and evidence pack ID).",
             )
-        return _success(evidence_pack=ep.to_dict())
+        from devops_control_tower.worker.eligibility import production_eligibility
+
+        return _success(
+            evidence_pack=ep.to_dict(),
+            production_eligibility=production_eligibility(db, ep),
+        )
     except Exception as exc:
         return _error("GET_EVIDENCE_ERROR", str(exc))
     finally:

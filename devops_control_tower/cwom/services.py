@@ -1120,6 +1120,21 @@ class ReviewDecisionService:
         reviewer = review_data["reviewer"]
         decision = review_data["decision"]
 
+        from ..worker.eligibility import EXPERIMENTAL_TAG, evidence_is_experimental
+
+        if evidence_is_experimental(evidence_pack):
+            review_data = dict(review_data)
+            review_data["tags"] = list(review_data.get("tags") or []) + [
+                t
+                for t in [EXPERIMENTAL_TAG]
+                if t not in (review_data.get("tags") or [])
+            ]
+            review_data["meta"] = {
+                **(review_data.get("meta") or {}),
+                "experiment": (evidence_pack.meta or {}).get("experiment"),
+                "production_eligible": False,
+            }
+
         # No self-review: the executor of a run may not review it
         executor_id = run_executor_id(run)
         reviewer_id = reviewer.get("actor_id") if isinstance(reviewer, dict) else None

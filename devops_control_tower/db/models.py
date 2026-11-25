@@ -106,6 +106,7 @@ class TaskModel(Base):
             "completed",
             "failed",
             "cancelled",
+            "held",
             name="task_status",
         ),
         nullable=False,
@@ -122,6 +123,9 @@ class TaskModel(Base):
     # Execution details
     assigned_to = Column(String(100), nullable=True)
     lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Expired lease whose holder's termination could not be confirmed (DEVOPS-CON-11)
+    held_at = Column(DateTime(timezone=True), nullable=True)
+    held_reason = Column(Text, nullable=True)
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     trace_path = Column(String(512), nullable=True)
@@ -175,6 +179,8 @@ class TaskModel(Base):
             "lease_expires_at": self.lease_expires_at.isoformat()
             if self.lease_expires_at
             else None,
+            "held_at": self.held_at.isoformat() if self.held_at else None,
+            "held_reason": self.held_reason,
             "result": self.result,
             "error": self.error,
             "trace_path": self.trace_path,

@@ -35,7 +35,7 @@ from ..db.cwom_models import (
 )
 from ..db.models import TaskModel
 from .executor import ExecutionContext, ExecutionResult, get_executor
-from .leases import lease_expiry, requeue_expired
+from .leases import CLAIM_TIMESTAMP_BINDS, lease_expiry, process_expired_leases
 from .pipeline import apply_review_policy, run_prove
 from .storage import create_trace_store, get_trace_uri
 
@@ -114,7 +114,9 @@ class WorkerLoop:
         db = SessionLocal()
         try:
             # Requeue claims whose lease has expired (G7)
-            requeue_expired(db, actor_id=f"lease-reaper:{self.worker_id}")
+            # Hold (or, with confirmed termination, requeue) expired claims.
+            # No termination confirmer exists yet, so expired claims are held.
+            process_expired_leases(db, actor_id=f"lease-reaper:{self.worker_id}")
 
             # Find and claim queued tasks
             task = self._claim_task(db)
@@ -165,7 +167,7 @@ class WorkerLoop:
                     lease_expires_at = :lease_expires_at
                 WHERE id = :task_id AND status = 'queued'
             """
-            ),
+            ).bindparams(*CLAIM_TIMESTAMP_BINDS),
             {
                 "task_id": str(task.id),
                 "started_at": now,

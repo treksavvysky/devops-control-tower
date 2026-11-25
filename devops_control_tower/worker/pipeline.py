@@ -88,6 +88,12 @@ def apply_review_policy(
         v.strip() for v in settings.jct_review_auto_approve_verdicts.split(",")
     ]
     verdict_qualifies = evidence_pack.verdict in allowed_verdicts
+
+    from .eligibility import evidence_is_experimental
+
+    if evidence_is_experimental(evidence_pack):
+        # Experimental runs are never auto-approved (DEVOPS-CON-11).
+        auto_approve = False
     _trace_id = trace_id or task.trace_id
 
     if auto_approve and verdict_qualifies:
