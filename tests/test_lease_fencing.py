@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -40,7 +40,9 @@ from devops_control_tower.worker.leases import (
     resolve_held_task,
 )
 
-BACKENDS = ["sqlite"] + (["postgres"] if os.environ.get("DCT_TEST_POSTGRES_URL") else [])
+BACKENDS = ["sqlite"] + (
+    ["postgres"] if os.environ.get("DCT_TEST_POSTGRES_URL") else []
+)
 
 
 @pytest.fixture(params=BACKENDS)
@@ -77,8 +79,11 @@ def backend(request, tmp_path, monkeypatch):
         mcp_module._active_claims.clear()
         state["engine"].dispose()
         url = state["engine"].url
-        kw = ({"connect_args": {"check_same_thread": False, "timeout": 30}}
-              if state["name"] == "sqlite" else {"pool_size": 20})
+        kw = (
+            {"connect_args": {"check_same_thread": False, "timeout": 30}}
+            if state["name"] == "sqlite"
+            else {"pool_size": 20}
+        )
         state["engine"] = create_engine(url, **kw)
         state["SM"] = sessionmaker(bind=state["engine"], autoflush=False)
 
@@ -110,9 +115,16 @@ def clock(monkeypatch):
 
 def _enqueue(budget=30, metadata=None, objective="lease test"):
     kw = {"metadata": metadata} if metadata is not None else {}
-    r = json.loads(mcp_module.jct_enqueue_task(
-        objective=objective, operation="analysis", target_repo="testorg/repo",
-        time_budget_seconds=budget, acceptance_criteria=["report exists"], **kw))
+    r = json.loads(
+        mcp_module.jct_enqueue_task(
+            objective=objective,
+            operation="analysis",
+            target_repo="testorg/repo",
+            time_budget_seconds=budget,
+            acceptance_criteria=["report exists"],
+            **kw,
+        )
+    )
     assert r["success"], r
     return r["task_id"]
 
@@ -160,9 +172,14 @@ def test_claim_paths_store_orm_comparable_lease(backend, path):
     try:
         t = db.query(TaskModel).filter(TaskModel.id == task_id).one()
         assert t.lease_expires_at is not None
-        same = (db.query(TaskModel)
-                .filter(TaskModel.id == task_id,
-                        TaskModel.lease_expires_at == t.lease_expires_at).count())
+        same = (
+            db.query(TaskModel)
+            .filter(
+                TaskModel.id == task_id,
+                TaskModel.lease_expires_at == t.lease_expires_at,
+            )
+            .count()
+        )
         assert same == 1, "stored lease must equal its own ORM-bound value"
     finally:
         db.close()
@@ -215,7 +232,11 @@ def test_concurrent_mcp_claims_single_winner(backend):
     db = backend["SM"]()
     try:
         t = db.query(TaskModel).filter(TaskModel.id == task_id).one()
-        runs = db.query(CWOMRunModel).filter(CWOMRunModel.for_issue_id == t.cwom_issue_id).all()
+        runs = (
+            db.query(CWOMRunModel)
+            .filter(CWOMRunModel.for_issue_id == t.cwom_issue_id)
+            .all()
+        )
         assert len(runs) == 1
     finally:
         db.close()
@@ -267,11 +288,24 @@ def test_concurrent_reapers_single_transition(backend, clock):
     assert sum(len(o["requeued"]) for o in outs) == 0
     db = backend["SM"]()
     try:
-        holds = (db.query(AuditLogModel)
-                 .filter(AuditLogModel.entity_id == task_id,
-                         AuditLogModel.entity_kind == "Task").all())
-        assert len([a for a in holds if (a.after or {}).get("status") == "held"
-                    or "held" in (a.note or "")]) == 1
+        holds = (
+            db.query(AuditLogModel)
+            .filter(
+                AuditLogModel.entity_id == task_id, AuditLogModel.entity_kind == "Task"
+            )
+            .all()
+        )
+        assert (
+            len(
+                [
+                    a
+                    for a in holds
+                    if (a.after or {}).get("status") == "held"
+                    or "held" in (a.note or "")
+                ]
+            )
+            == 1
+        )
     finally:
         db.close()
 
@@ -280,30 +314,44 @@ def test_concurrent_reapers_single_transition(backend, clock):
 def test_stale_holder_writes_refused_after_hold(backend, clock):
     task_id = _enqueue(budget=30)
     claim = _mcp_claim(task_id)
-    ok = json.loads(mcp_module.jct_report_artifact(
-        task_id=task_id, title="early", artifact_type="doc", content="before expiry"))
+    ok = json.loads(
+        mcp_module.jct_report_artifact(
+            task_id=task_id, title="early", artifact_type="doc", content="before expiry"
+        )
+    )
     assert ok["success"]
     clock(31)
     json.loads(mcp_module.jct_list_tasks())  # hold
-    late_art = json.loads(mcp_module.jct_report_artifact(
-        task_id=task_id, title="late", artifact_type="doc", content="after expiry"))
-    late_done = json.loads(mcp_module.jct_complete_task(
-        task_id=task_id, success=True, summary="late"))
+    late_art = json.loads(
+        mcp_module.jct_report_artifact(
+            task_id=task_id, title="late", artifact_type="doc", content="after expiry"
+        )
+    )
+    late_done = json.loads(
+        mcp_module.jct_complete_task(task_id=task_id, success=True, summary="late")
+    )
     assert late_art["success"] is False and late_done["success"] is False
     assert late_art["error"]["code"] in ("TASK_NOT_RUNNING", "CLAIM_LOST")
     assert late_done["error"]["code"] in ("TASK_NOT_RUNNING", "CLAIM_LOST")
     db = backend["SM"]()
     try:
-        arts = db.query(CWOMArtifactModel).filter(
-            CWOMArtifactModel.produced_by_id == claim["run_id"]).all()
+        arts = (
+            db.query(CWOMArtifactModel)
+            .filter(CWOMArtifactModel.produced_by_id == claim["run_id"])
+            .all()
+        )
         assert [a.title for a in arts] == ["early"]
-        assert db.query(CWOMEvidencePackModel).filter(
-            CWOMEvidencePackModel.for_run_id == claim["run_id"]).count() == 0
+        assert (
+            db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.for_run_id == claim["run_id"])
+            .count()
+            == 0
+        )
     finally:
         db.close()
 
 
-# --------------------------------------------------------------- unconfirmed termination
+# ---------------------------------------------------------- unconfirmed termination
 def test_unconfirmed_termination_never_requeues(backend, clock):
     task_id = _enqueue(budget=30)
     assert _mcp_claim(task_id)["success"]
@@ -320,12 +368,18 @@ def test_unconfirmed_termination_never_requeues(backend, clock):
     assert _worker_claim(backend) is None
 
 
-@pytest.mark.parametrize("confirmer,expected", [
-    (None, "held"),
-    (lambda t: False, "held"),
-    (lambda t: (_ for _ in ()).throw(RuntimeError("substrate unreachable")), "held"),
-    (lambda t: True, "queued"),
-])
+@pytest.mark.parametrize(
+    "confirmer,expected",
+    [
+        (None, "held"),
+        (lambda t: False, "held"),
+        (
+            lambda t: (_ for _ in ()).throw(RuntimeError("substrate unreachable")),
+            "held",
+        ),
+        (lambda t: True, "queued"),
+    ],
+)
 def test_termination_confirmer_fails_closed(backend, clock, confirmer, expected):
     task_id = _enqueue(budget=30)
     assert _mcp_claim(task_id)["success"]
@@ -349,15 +403,27 @@ def test_operator_resolution_rules(backend, clock):
         with pytest.raises(HeldTaskError, match="confirmed termination"):
             resolve_held_task(db, task_id, "requeue", "george", "looks fine")
         with pytest.raises(HeldTaskError, match="note"):
-            resolve_held_task(db, task_id, "requeue", "george", " ", termination_confirmed=True)
-        t = resolve_held_task(db, task_id, "requeue", "george", "container gone (docker ps)",
-                              termination_confirmed=True)
+            resolve_held_task(
+                db, task_id, "requeue", "george", " ", termination_confirmed=True
+            )
+        t = resolve_held_task(
+            db,
+            task_id,
+            "requeue",
+            "george",
+            "container gone (docker ps)",
+            termination_confirmed=True,
+        )
         assert t.status == "queued" and t.held_at is None
         with pytest.raises(HeldTaskError, match="not held"):
             resolve_held_task(db, task_id, "fail", "george", "again")
-        audit = (db.query(AuditLogModel)
-                 .filter(AuditLogModel.entity_id == task_id, AuditLogModel.actor_id == "george")
-                 .all())
+        audit = (
+            db.query(AuditLogModel)
+            .filter(
+                AuditLogModel.entity_id == task_id, AuditLogModel.actor_id == "george"
+            )
+            .all()
+        )
         assert audit and all(a.actor_kind == "human" for a in audit)
     finally:
         db.close()
@@ -377,11 +443,37 @@ def test_operator_fail_resolution_and_cli(backend, clock, monkeypatch, capsys):
     assert held_cli.main(["list"]) == 0
     assert task_id in capsys.readouterr().out
     # requeue without --confirmed-terminated is refused
-    assert held_cli.main(["resolve", task_id, "--action", "requeue",
-                          "--operator", "george", "--note", "x"]) == 2
+    assert (
+        held_cli.main(
+            [
+                "resolve",
+                task_id,
+                "--action",
+                "requeue",
+                "--operator",
+                "george",
+                "--note",
+                "x",
+            ]
+        )
+        == 2
+    )
     assert _task(backend, task_id).status == "held"
-    assert held_cli.main(["resolve", task_id, "--action", "fail",
-                          "--operator", "george", "--note", "abandon"]) == 0
+    assert (
+        held_cli.main(
+            [
+                "resolve",
+                task_id,
+                "--action",
+                "fail",
+                "--operator",
+                "george",
+                "--note",
+                "abandon",
+            ]
+        )
+        == 0
+    )
     assert _task(backend, task_id).status == "failed"
     with pytest.raises(SystemExit):  # --operator and --note are mandatory
         held_cli.main(["resolve", task_id, "--action", "fail"])
@@ -389,25 +481,27 @@ def test_operator_fail_resolution_and_cli(backend, clock, monkeypatch, capsys):
 
 # --------------------------------------------------------------- restart recovery
 def test_restart_recovery(backend, clock):
-    """After a restart: valid claims continue, expired claims are held, holds persist."""
+    """After a restart: valid claims continue, expired ones held, holds persist."""
     a = _enqueue(budget=600, objective="A long")
     b = _enqueue(budget=30, objective="B short")
     claim_a = _mcp_claim(a)
     assert claim_a["success"]
     assert _worker_claim(backend)[0] == b
 
-    backend["restart"]()          # process restart: in-memory claims and pool gone
-    clock(31)                     # B's lease has expired, A's hasn't
+    backend["restart"]()  # process restart: in-memory claims and pool gone
+    clock(31)  # B's lease has expired, A's hasn't
     assert loop_module.WorkerLoop(executor_type="stub")._poll_and_process() == 0
     assert _task(backend, b).status == "held"
     assert _task(backend, a).status == "running"
 
     # The valid holder of A completes after the restart (DB fallback for the claim)
-    done = json.loads(mcp_module.jct_complete_task(task_id=a, success=True, summary="ok"))
+    done = json.loads(
+        mcp_module.jct_complete_task(task_id=a, success=True, summary="ok")
+    )
     assert done["success"], done
     assert _task(backend, a).status == "completed"
 
-    backend["restart"]()          # holds survive another restart; nothing requeued
+    backend["restart"]()  # holds survive another restart; nothing requeued
     clock(3600)
     json.loads(mcp_module.jct_list_tasks())
     assert _task(backend, b).status == "held"
@@ -415,10 +509,15 @@ def test_restart_recovery(backend, clock):
 
 # --------------------------------------------------------------- experimental runs
 def test_unauthorized_experiment_refused_at_intake(backend):
-    r = json.loads(mcp_module.jct_enqueue_task(
-        objective="unauthorized experiment probe", operation="analysis",
-        target_repo="testorg/repo",
-        time_budget_seconds=60, metadata={"experiment": {"id": "NOT-AUTHORIZED"}}))
+    r = json.loads(
+        mcp_module.jct_enqueue_task(
+            objective="unauthorized experiment probe",
+            operation="analysis",
+            target_repo="testorg/repo",
+            time_budget_seconds=60,
+            metadata={"experiment": {"id": "NOT-AUTHORIZED"}},
+        )
+    )
     assert r["success"] is False
     assert r["error"]["code"] == "EXPERIMENT_NOT_AUTHORIZED"
 
@@ -427,9 +526,14 @@ def _run_to_evidence(backend, metadata=None):
     task_id = _enqueue(budget=300, metadata=metadata)
     claim = _mcp_claim(task_id)
     assert claim["success"]
-    json.loads(mcp_module.jct_report_artifact(
-        task_id=task_id, title="report", artifact_type="report", content="ok"))
-    done = json.loads(mcp_module.jct_complete_task(task_id=task_id, success=True, summary="ok"))
+    json.loads(
+        mcp_module.jct_report_artifact(
+            task_id=task_id, title="report", artifact_type="report", content="ok"
+        )
+    )
+    done = json.loads(
+        mcp_module.jct_complete_task(task_id=task_id, success=True, summary="ok")
+    )
     assert done["success"], done
     return task_id, claim["run_id"], done
 
@@ -437,16 +541,26 @@ def _run_to_evidence(backend, metadata=None):
 def test_experimental_run_never_production_eligible(backend):
     from devops_control_tower.worker.eligibility import production_eligibility
 
-    _, run_id, done = _run_to_evidence(backend, metadata={"experiment": {"id": "EXP-TEST"}})
+    _, run_id, done = _run_to_evidence(
+        backend, metadata={"experiment": {"id": "EXP-TEST"}}
+    )
     # auto-approve is ON in this fixture, yet experimental evidence is not auto-approved
     assert done.get("review", {}).get("status") != "auto_approved"
     ep_id = done["evidence_pack"]["id"]
-    approved = _as("reviewer@test", mcp_module.jct_submit_review, ep_id, "approved", "fine")
+    approved = _as(
+        "reviewer@test", mcp_module.jct_submit_review, ep_id, "approved", "fine"
+    )
     assert approved["success"], approved
     db = backend["SM"]()
     try:
-        ep = db.query(CWOMEvidencePackModel).filter(CWOMEvidencePackModel.id == ep_id).one()
-        assert "experimental" in ep.tags and ep.verdict_reason.startswith("[EXPERIMENTAL")
+        ep = (
+            db.query(CWOMEvidencePackModel)
+            .filter(CWOMEvidencePackModel.id == ep_id)
+            .one()
+        )
+        assert "experimental" in ep.tags and ep.verdict_reason.startswith(
+            "[EXPERIMENTAL"
+        )
         elig = production_eligibility(db, ep)
         assert elig["eligible"] is False
         assert any("experimental" in r for r in elig["reasons"])
@@ -463,10 +577,14 @@ def test_production_run_eligible_only_with_independent_approval(backend, monkeyp
     _, run_id, done = _run_to_evidence(backend)
     ep_id = done["evidence_pack"]["id"]
     before = _as("reviewer@test", mcp_module.jct_get_evidence, ep_id)
-    assert before["production_eligibility"]["eligible"] is False   # not reviewed yet
-    self_review = _as("exec-A@test", mcp_module.jct_submit_review, ep_id, "approved", "me")
+    assert before["production_eligibility"]["eligible"] is False  # not reviewed yet
+    self_review = _as(
+        "exec-A@test", mcp_module.jct_submit_review, ep_id, "approved", "me"
+    )
     assert self_review["success"] is False
-    ok = _as("reviewer@test", mcp_module.jct_submit_review, ep_id, "approved", "checked")
+    ok = _as(
+        "reviewer@test", mcp_module.jct_submit_review, ep_id, "approved", "checked"
+    )
     assert ok["success"], ok
     import asyncio
 

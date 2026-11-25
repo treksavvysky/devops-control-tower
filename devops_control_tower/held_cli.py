@@ -39,7 +39,8 @@ def _list(_args) -> int:
             print("No held tasks.")
             return 0
         for t in tasks:
-            print(f"{t.id}  held_at={t.held_at}  holder={t.assigned_to}  {t.objective[:60]}")
+            print(f"{t.id}  held_at={t.held_at}  holder={t.assigned_to}")
+            print(f"    objective: {t.objective[:60]}")
             print(f"    reason: {t.held_reason}")
         return 0
     finally:
@@ -51,8 +52,14 @@ def _resolve(args) -> int:
 
     db = _session()
     try:
-        task = resolve_held_task(db, args.task_id, args.action, args.operator, args.note,
-                                 termination_confirmed=args.confirmed_terminated)
+        task = resolve_held_task(
+            db,
+            args.task_id,
+            args.action,
+            args.operator,
+            args.note,
+            termination_confirmed=args.confirmed_terminated,
+        )
         print(f"{task.id} -> {task.status}")
         return 0
     except HeldTaskError as exc:
@@ -65,17 +72,25 @@ def _resolve(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="dct-held",
-        description="Inspect and resolve held tasks (expired leases, termination unconfirmed).",
+        description=(
+            "Inspect and resolve held tasks "
+            "(expired leases, termination unconfirmed)."
+        ),
     )
     sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("list", help="List held tasks, oldest first").set_defaults(func=_list)
+    sub.add_parser("list", help="List held tasks, oldest first").set_defaults(
+        func=_list
+    )
     r = sub.add_parser("resolve", help="Resolve a held task: requeue or fail")
     r.add_argument("task_id")
     r.add_argument("--action", required=True, choices=["requeue", "fail"])
     r.add_argument("--operator", required=True, help="Your identity (audited)")
     r.add_argument("--note", required=True, help="Why; what you checked")
-    r.add_argument("--confirmed-terminated", action="store_true",
-                   help="Assert the previous holder is no longer running (required to requeue)")
+    r.add_argument(
+        "--confirmed-terminated",
+        action="store_true",
+        help="Assert the previous holder is no longer running (required to requeue)",
+    )
     r.set_defaults(func=_resolve)
     return p
 

@@ -41,9 +41,13 @@ def production_eligibility(db: Session, evidence_pack: Any) -> Dict[str, Any]:
     reasons: List[str] = []
     if evidence_is_experimental(evidence_pack):
         exp = (getattr(evidence_pack, "meta", None) or {}).get("experiment")
-        reasons.append(f"experimental run ({exp or 'experiment'}); never production evidence")
+        reasons.append(
+            f"experimental run ({exp or 'experiment'}); never production evidence"
+        )
     if getattr(evidence_pack, "verdict", None) != "pass":
-        reasons.append(f"verdict is {getattr(evidence_pack, 'verdict', None)!r}, not 'pass'")
+        reasons.append(
+            f"verdict is {getattr(evidence_pack, 'verdict', None)!r}, not 'pass'"
+        )
 
     run = (
         db.query(CWOMRunModel)
