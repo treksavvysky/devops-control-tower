@@ -2,10 +2,14 @@
 Operator commands for held tasks (DEVOPS-CON-11).
 
 A task is *held* when its claim lease expired and the previous holder's
-termination couldn't be confirmed. Only an operator resolves it. There is
-deliberately no MCP or REST surface for this until DCT routes are
-authenticated (DEVOPS-CON-5): an executor must never be able to release its own
-held task.
+termination couldn't be confirmed. An operator resolves it here; there is no
+MCP or REST surface for resolution.
+
+What this does NOT guarantee: ``--operator`` is recorded in the audit log but
+not verified. Anyone who can run this command against the DCT database,
+including an executor agent with a shell on the same host, can resolve a
+hold and assert termination. Restricting who can resolve holds needs operator
+authentication (DEVOPS-CON-5).
 
     dct-held list
     dct-held resolve TASK_ID --action requeue --confirmed-terminated \\
