@@ -71,6 +71,70 @@ def _error(code: str, message: str, suggestion: str = "") -> str:
     return json.dumps({"success": False, "error": err})
 
 
+EXECUTOR_TYPE = "mcp_agent"
+EXECUTOR_VERSION = "0.2.0"
+
+
+def _actor_id() -> Optional[str]:
+    """Identity this MCP server acts for (JCT_ACTOR_ID), or None if unset."""
+    from devops_control_tower.config import get_settings
+
+    actor = (get_settings().jct_actor_id or "").strip()
+    return actor or None
+
+
+def _actor_missing_error() -> str:
+    return _error(
+        "ACTOR_NOT_CONFIGURED",
+        "This JCT MCP server has no executor identity (JCT_ACTOR_ID is unset).",
+        "Set JCT_ACTOR_ID in the MCP server's environment, e.g. Claude@codejourney.",
+    )
+
+
+def _executor_record(actor: str) -> Dict[str, Any]:
+    return {"type": EXECUTOR_TYPE, "version": EXECUTOR_VERSION, "worker_id": actor}
+
+
+def _requeue_expired(db) -> list:
+    """Requeue expired claims; never let the reaper break the calling tool."""
+    from devops_control_tower.worker.leases import requeue_expired
+
+    try:
+        return requeue_expired(db, actor_id="lease-reaper:mcp")
+    except Exception as exc:  # pragma: no cover - defensive
+        db.rollback()
+        logger.warning("Lease reaper failed: %s", exc)
+        return []
+
+
+def _check_claim_held(db, task, actor: str, claim) -> Optional[str]:
+    """Return an error response if `actor` no longer holds the claim on `task`."""
+    from devops_control_tower.db.cwom_models import CWOMRunModel
+
+    if task.status != "running":
+        return _error(
+            "TASK_NOT_RUNNING",
+            f"Task '{task.id}' is not running (current status: {task.status}).",
+        )
+    if task.assigned_to != actor:
+        return _error(
+            "CLAIM_NOT_HELD",
+            f"Task '{task.id}' is claimed by '{task.assigned_to}', not '{actor}'.",
+        )
+    if claim:
+        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
+        if run is None or run.status != "running":
+            _active_claims.pop(str(task.id), None)
+            reason = (run.failure or {}).get("code") if run is not None else None
+            return _error(
+                "CLAIM_LOST",
+                f"The claim on task '{task.id}' is no longer active"
+                + (f" ({reason})." if reason else "."),
+                "Use jct_list_tasks and claim the task again.",
+            )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # In-memory state for active claims
 # ---------------------------------------------------------------------------
@@ -138,6 +202,8 @@ def jct_list_tasks(
     try:
         from devops_control_tower.db.services import TaskService
 
+        _requeue_expired(db)
+
         svc = TaskService(db)
         tasks = svc.get_tasks(
             status=status,
@@ -198,6 +264,14 @@ def jct_claim_task(task_id: str) -> str:
 
         settings = get_settings()
 
+        actor = _actor_id()
+        if not actor:
+            return _actor_missing_error()
+
+        _requeue_expired(db)
+
+        from devops_control_tower.worker.leases import lease_expiry
+
         # Find the task
         try:
             task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
@@ -218,22 +292,25 @@ def jct_claim_task(task_id: str) -> str:
                 "Use jct_list_tasks to find another available task.",
             )
 
-        # Atomically claim (optimistic locking)
+        # Atomically claim (optimistic locking) with a lease
         now = datetime.now(timezone.utc)
+        lease_expires_at = lease_expiry(task.time_budget_seconds, now)
         result = db.execute(
             text(
                 """
                 UPDATE tasks
                 SET status = 'running',
                     started_at = :started_at,
-                    assigned_to = :worker_id
+                    assigned_to = :worker_id,
+                    lease_expires_at = :lease_expires_at
                 WHERE id = :task_id AND status = 'queued'
             """
             ),
             {
                 "task_id": str(task.id),
                 "started_at": now,
-                "worker_id": "claude-code",
+                "worker_id": actor,
+                "lease_expires_at": lease_expires_at,
             },
         )
         db.commit()
@@ -275,11 +352,7 @@ def jct_claim_task(task_id: str) -> str:
                     repo_kind="Repo",
                     status="running",
                     mode="agent",
-                    executor={
-                        "type": "claude_code",
-                        "version": "0.1.0",
-                        "worker_id": "claude-code",
-                    },
+                    executor=_executor_record(actor),
                     inputs={
                         "task_id": str(task.id),
                         "operation": task.operation,
@@ -300,7 +373,7 @@ def jct_claim_task(task_id: str) -> str:
                     entity_id=run_id,
                     after=run.to_dict(),
                     actor_kind="agent",
-                    actor_id="claude-code",
+                    actor_id=actor,
                     note=f"Run created via MCP for task {task.id}",
                     trace_id=task.trace_id,
                 )
@@ -365,11 +438,9 @@ def jct_claim_task(task_id: str) -> str:
                         "task_id": str(task.id),
                         "run_id": run_id,
                         "trace_id": task.trace_id,
-                        "executor": {
-                            "type": "claude_code",
-                            "version": "0.1.0",
-                        },
+                        "executor": _executor_record(actor),
                         "started_at": now.isoformat(),
+                        "lease_expires_at": lease_expires_at.isoformat(),
                         "status": "running",
                     },
                 )
@@ -378,6 +449,8 @@ def jct_claim_task(task_id: str) -> str:
             task_id=str(task.id),
             run_id=run_id,
             trace_id=task.trace_id,
+            executor=actor,
+            lease_expires_at=lease_expires_at.isoformat(),
             objective=task.objective,
             operation=task.operation,
             target={
@@ -501,11 +574,19 @@ def jct_report_artifact(
             f"Valid types: {', '.join(valid_types)}",
         )
 
+    actor = _actor_id()
+    if not actor:
+        return _actor_missing_error()
+
     db = _get_db()
     try:
+        import hashlib
+
         from devops_control_tower.db.audit_service import AuditService
         from devops_control_tower.db.cwom_models import CWOMArtifactModel
         from devops_control_tower.db.models import TaskModel
+
+        _requeue_expired(db)
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
@@ -519,8 +600,20 @@ def jct_report_artifact(
                 "Use jct_claim_task first.",
             )
 
+        held_error = _check_claim_held(db, task, actor, claim)
+        if held_error:
+            return held_error
+
         run_id = claim["run_id"]
         store = claim.get("store")
+
+        # Digest the exact bytes recorded (G5); URI-only artifacts stay undigested
+        digest = None
+        size_bytes = None
+        if content is not None:
+            content_bytes = content.encode("utf-8")
+            digest = "sha256:" + hashlib.sha256(content_bytes).hexdigest()
+            size_bytes = len(content_bytes)
 
         # Write content to trace store
         artifact_uri = uri
@@ -535,6 +628,9 @@ def jct_report_artifact(
                     "title": title,
                     "type": artifact_type,
                     "path": artifact_path,
+                    "digest": digest,
+                    "size_bytes": size_bytes,
+                    "actor": actor,
                 }
             )
 
@@ -559,6 +655,8 @@ def jct_report_artifact(
             title=title,
             uri=artifact_uri,
             media_type=media_type,
+            digest=digest,
+            size_bytes=size_bytes,
         )
         db.add(artifact)
 
@@ -568,7 +666,7 @@ def jct_report_artifact(
             entity_id=artifact_id,
             after=artifact.to_dict(),
             actor_kind="agent",
-            actor_id="claude-code",
+            actor_id=actor,
             note=f"Artifact reported via MCP: {title}",
             trace_id=task.trace_id,
         )
@@ -582,6 +680,8 @@ def jct_report_artifact(
             title=title,
             type=artifact_type,
             uri=artifact_uri,
+            digest=digest,
+            size_bytes=size_bytes,
         )
     except Exception as exc:
         db.rollback()
@@ -606,6 +706,10 @@ def jct_complete_task(
     error_message: Optional[str] = None,
 ) -> str:
     """Complete a claimed task and trigger prove/review."""
+    actor = _actor_id()
+    if not actor:
+        return _actor_missing_error()
+
     db = _get_db()
     try:
         from devops_control_tower.db.audit_service import AuditService
@@ -613,17 +717,17 @@ def jct_complete_task(
         from devops_control_tower.db.models import TaskModel
         from devops_control_tower.worker.pipeline import apply_review_policy, run_prove
 
+        _requeue_expired(db)
+
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
             return _error("TASK_NOT_FOUND", f"Task '{task_id}' not found.")
 
-        if task.status != "running":
-            return _error(
-                "TASK_NOT_RUNNING",
-                f"Task '{task_id}' is not running " f"(current status: {task.status}).",
-            )
-
         claim = _get_active_claim(task_id, db)
+        held_error = _check_claim_held(db, task, actor, claim)
+        if held_error:
+            return held_error
+
         now = datetime.now(timezone.utc)
 
         # Parse outputs if provided as JSON string
@@ -638,6 +742,7 @@ def jct_complete_task(
         # Update task
         task.status = "completed" if success else "failed"
         task.completed_at = now
+        task.lease_expires_at = None
         task.result = outputs_dict
         if not success and error_message:
             task.error = error_message
@@ -682,23 +787,44 @@ def jct_complete_task(
                     old_status="running",
                     new_status="done" if success else "failed",
                     actor_kind="agent",
-                    actor_id="claude-code",
+                    actor_id=actor,
                     note=summary,
                     trace_id=task.trace_id,
                 )
 
-                # Write final manifest
+                # Write final manifest, including executor and artifact digests
                 if store:
+                    from devops_control_tower.db.cwom_models import CWOMArtifactModel
+
+                    run_artifacts = (
+                        db.query(CWOMArtifactModel)
+                        .filter(CWOMArtifactModel.produced_by_id == run_id)
+                        .all()
+                    )
                     store.write_json(
                         "manifest.json",
                         {
-                            "version": "1.0",
+                            "version": "1.1",
                             "task_id": str(task.id),
                             "run_id": run_id,
                             "trace_id": task.trace_id,
+                            "executor": _executor_record(actor),
+                            "started_at": task.started_at.isoformat()
+                            if task.started_at
+                            else None,
                             "completed_at": now.isoformat(),
                             "status": "completed" if success else "failed",
                             "result": outputs_dict,
+                            "artifacts": [
+                                {
+                                    "id": a.id,
+                                    "title": a.title,
+                                    "uri": a.uri,
+                                    "digest": a.digest,
+                                    "size_bytes": a.size_bytes,
+                                }
+                                for a in run_artifacts
+                            ],
                         },
                     )
                     if store:
@@ -732,7 +858,7 @@ def jct_complete_task(
                             task=task,
                             run=run,
                             evidence_pack=evidence_pack,
-                            actor_id="claude-code",
+                            actor_id=actor,
                             trace_id=task.trace_id,
                         )
                         response["review"] = review_result
@@ -902,14 +1028,24 @@ def jct_submit_review(
     evidence_pack_id: str,
     decision: str,
     reason: str,
-    reviewer_name: str = "claude-code",
+    reviewer_name: Optional[str] = None,
 ) -> str:
-    """Submit a review decision for an evidence pack."""
+    """Submit a review decision for an evidence pack.
+
+    The reviewer identity is this server's JCT_ACTOR_ID, not a parameter:
+    `reviewer_name` is a display label only. A reviewer who executed the run
+    is refused (no self-review).
+    """
+    actor = _actor_id()
+    if not actor:
+        return _actor_missing_error()
+
     db = _get_db()
     try:
         from devops_control_tower.cwom.services import (
             EvidencePackService,
             ReviewDecisionService,
+            SelfReviewError,
         )
 
         if decision not in ("approved", "rejected", "needs_changes"):
@@ -937,8 +1073,8 @@ def jct_submit_review(
             "for_issue": {"kind": "Issue", "id": ep.for_issue_id},
             "reviewer": {
                 "actor_kind": "agent",
-                "actor_id": reviewer_name,
-                "display": reviewer_name,
+                "actor_id": actor,
+                "display": reviewer_name or actor,
             },
             "decision": decision,
             "decision_reason": reason,
@@ -946,11 +1082,15 @@ def jct_submit_review(
         }
 
         review_svc = ReviewDecisionService(db)
-        review = review_svc.create(
-            review_data=review_data,
-            actor_kind="agent",
-            actor_id=reviewer_name,
-        )
+        try:
+            review = review_svc.create(
+                review_data=review_data,
+                actor_kind="agent",
+                actor_id=actor,
+            )
+        except SelfReviewError as exc:
+            # Raised before anything is written, so there is nothing to roll back
+            return _error("SELF_REVIEW_FORBIDDEN", str(exc))
 
         db.commit()
 
@@ -1091,8 +1231,8 @@ def jct_enqueue_task(
             "version": "1.0",
             "requested_by": {
                 "kind": "agent",
-                "id": "claude-code",
-                "label": "Claude Code (MCP)",
+                "id": _actor_id() or "unidentified-mcp-client",
+                "label": "JCT MCP client",
             },
             "objective": objective,
             "operation": actual_operation,
@@ -1140,7 +1280,7 @@ def jct_enqueue_task(
             entity_id=str(db_task.id),
             after=db_task.to_dict(),
             actor_kind="agent",
-            actor_id="claude-code",
+            actor_id=_actor_id() or "unidentified-mcp-client",
             note="Task created via MCP jct_enqueue_task",
             trace_id=trace_id,
         )

@@ -123,6 +123,7 @@ class TaskModel(Base):
 
     # Execution details
     assigned_to = Column(String(100), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     trace_path = Column(String(512), nullable=True)
@@ -137,6 +138,7 @@ class TaskModel(Base):
     __table_args__ = (
         Index("ix_tasks_status_operation", "status", "operation"),
         Index("ix_tasks_requester", "requested_by_kind", "requested_by_id"),
+        Index("ix_tasks_status_lease_expires_at", "status", "lease_expires_at"),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -172,6 +174,9 @@ class TaskModel(Base):
             if self.completed_at
             else None,
             "assigned_to": self.assigned_to,
+            "lease_expires_at": self.lease_expires_at.isoformat()
+            if self.lease_expires_at
+            else None,
             "result": self.result,
             "error": self.error,
             "trace_path": self.trace_path,
