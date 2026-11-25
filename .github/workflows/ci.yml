@@ -7,6 +7,27 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  # Lint and test are separate jobs so test results are visible even while
+  # lint fails (DEVOPS-CON-4). Neither is a required check on main.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install pre-commit
+      run: |
+        python -m pip install --upgrade pip
+        pip install pre-commit
+
+    - name: Run pre-commit (black, isort, flake8 at pinned versions)
+      run: pre-commit run --all-files --show-diff-on-failure --color always
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -42,39 +63,42 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        key: ${{ runner.os }}-pip-${{ hashFiles('constraints/ci-py312.txt', 'requirements-dev.txt', 'pyproject.toml') }}
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install dependencies
+    - name: Install dependencies (pinned by constraints/ci-py312.txt)
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt
-        pip install -e .
+        pip install -c constraints/ci-py312.txt -r requirements-dev.txt
+        pip install -c constraints/ci-py312.txt -e .
 
-    - name: Run pre-commit
-      run: pre-commit run --all-files --show-diff-on-failure --color always
+    - name: Show key versions
+      run: pip list 2>/dev/null | grep -iE '^(pydantic|pydantic.core|sqlalchemy|mcp|fastapi|starlette|httpx|alembic|psycopg2-binary) '
 
     - name: Run tests
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_devops_control_tower
         REDIS_URL: redis://localhost:6379/0
       run: |
-        coverage run -m pytest
+        coverage run -m pytest -o addopts="-ra --strict-markers --strict-config"
+        coverage report --skip-covered | tail -1
         coverage xml
 
     - name: Verify fresh DB migrations (SQLite)
+      if: always()
       run: bash scripts/verify_db_fresh.sh
 
     - name: Verify fresh DB migrations (PostgreSQL)
+      if: always()
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_fresh_migration
       run: |
@@ -85,14 +109,17 @@ jobs:
         PGPASSWORD=postgres dropdb -h localhost -U postgres test_fresh_migration
 
     - name: Upload coverage to Codecov
+      if: always()
       uses: codecov/codecov-action@v3
       with:
         file: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
 
+  # Publishes an image to GHCR on pushes to main. Gated on lint AND test, so it
+  # stays dormant (as it has been since 2026-03) until the lint debt is cleared.
   build:
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
