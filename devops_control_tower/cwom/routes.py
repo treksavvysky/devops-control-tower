@@ -30,6 +30,7 @@ from .services import (
     RepoService,
     ReviewDecisionService,
     RunService,
+    SelfReviewError,
 )
 
 router = APIRouter(prefix="/cwom", tags=["CWOM"])
@@ -690,6 +691,8 @@ async def create_review(
             "status": "success",
             "review": db_review.to_dict(),
         }
+    except SelfReviewError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

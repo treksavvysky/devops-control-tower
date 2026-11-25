@@ -108,6 +108,23 @@ class Settings(BaseSettings):
         description="Comma-separated verdicts that qualify for auto-approval.",
     )
 
+    # Execution record (DEVOPS-CON-3)
+    jct_actor_id: Optional[str] = Field(
+        default=None,
+        validation_alias="JCT_ACTOR_ID",
+        description=(
+            "Identity of the agent this MCP server acts for (e.g. Claude@codejourney). "
+            "Required to claim tasks; recorded on runs, artifacts, audit rows "
+            "and reviews."
+        ),
+    )
+    jct_lease_grace_seconds: int = Field(
+        default=300,
+        ge=0,
+        validation_alias="JCT_LEASE_GRACE_SECONDS",
+        description="Seconds added to a task's time budget to form its claim lease.",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

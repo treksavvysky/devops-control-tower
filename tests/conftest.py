@@ -17,6 +17,9 @@ from sqlalchemy.pool import StaticPool
 
 # Set test environment variables BEFORE importing application code
 os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "testorg/"
+# MCP executor identity for tests (DEVOPS-CON-3); tests that need another
+# identity patch config.settings.
+os.environ.setdefault("JCT_ACTOR_ID", "test-executor@pytest")
 
 from devops_control_tower.core.orchestrator import Orchestrator
 from devops_control_tower.data.models.events import Event, EventPriority, EventTypes

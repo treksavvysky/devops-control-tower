@@ -191,7 +191,8 @@ class TestClaimTask:
         run = db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
         assert run is not None
         assert run.mode == "agent"
-        assert run.executor["type"] == "claude_code"
+        assert run.executor["type"] == "mcp_agent"
+        assert run.executor["worker_id"] == "test-executor@pytest"
 
     def test_claim_returns_context_packet(self, db, trace_dir):
         task_id = _seed_queued_task(db)
@@ -683,3 +684,377 @@ class TestFullWorkflow:
 
         audit = json.loads(jct_get_audit_trail(entity_kind="Run", entity_id=run_id))
         assert audit["count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Execution record fixes (DEVOPS-CON-3): G1 identity, G3 self-review,
+# G5 artifact digest, G7 claim leases
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+import hashlib  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+from datetime import timedelta  # noqa: E402
+
+
+@contextmanager
+def _as_actor(actor):
+    """Temporarily run MCP tools as a different JCT_ACTOR_ID (None = unset)."""
+    from devops_control_tower import config as cfg_mod
+
+    old = cfg_mod.settings.jct_actor_id
+    cfg_mod.settings.jct_actor_id = actor
+    try:
+        yield
+    finally:
+        cfg_mod.settings.jct_actor_id = old
+
+
+def _claimed_task(db, budget=300):
+    task_id = json.loads(
+        jct_enqueue_task(
+            objective="Lease/identity test",
+            operation="analysis",
+            target_repo="testorg/test-repo",
+            time_budget_seconds=budget,
+        )
+    )["task_id"]
+    claim = json.loads(jct_claim_task(task_id))
+    assert claim["success"], claim
+    return task_id, claim
+
+
+def _completed_for_review(db):
+    """Enqueue, claim, report and complete as the default executor (manual review)."""
+    task_id, claim = _claimed_task(db)
+    jct_report_artifact(
+        task_id=task_id, title="Report", artifact_type="doc", content="findings"
+    )
+    done = json.loads(jct_complete_task(task_id=task_id, success=True, summary="ok"))
+    assert done["success"], done
+    return task_id, claim["run_id"], done["evidence_pack"]["id"]
+
+
+def _expire_lease(db, task_id):
+    from devops_control_tower.db.models import TaskModel
+
+    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+    task.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.commit()
+
+
+class TestExecutorIdentity:
+    def test_claim_refused_without_actor(self, db, trace_dir):
+        task_id = _seed_queued_task(db)
+        with _as_actor(None):
+            result = json.loads(jct_claim_task(task_id))
+        assert result["success"] is False
+        assert result["error"]["code"] == "ACTOR_NOT_CONFIGURED"
+        task = json.loads(jct_get_task(task_id))["task"]
+        assert task["status"] == "queued"
+
+    def test_claim_records_actor_everywhere(self, db, trace_dir):
+        from devops_control_tower.db.audit_models import AuditLogModel
+        from devops_control_tower.db.cwom_models import CWOMRunModel
+        from devops_control_tower.db.models import TaskModel
+
+        with _as_actor("Codex@codejourney"):
+            task_id, claim = _claimed_task(db)
+            jct_report_artifact(
+                task_id=task_id, title="R", artifact_type="doc", content="x"
+            )
+            jct_complete_task(task_id=task_id, success=True, summary="ok")
+
+        assert claim["executor"] == "Codex@codejourney"
+        task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        assert task.assigned_to == "Codex@codejourney"
+        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
+        assert run.executor["worker_id"] == "Codex@codejourney"
+
+        agent_rows = (
+            db.query(AuditLogModel)
+            .filter(AuditLogModel.actor_kind == "agent")
+            .all()
+        )
+        assert agent_rows
+        assert all(r.actor_id != "claude-code" for r in agent_rows)
+        assert {"Codex@codejourney"} >= {
+            r.actor_id for r in agent_rows if r.entity_kind in ("Run", "Artifact")
+        }
+
+    def test_other_actor_cannot_complete(self, db, trace_dir):
+        task_id, _ = _claimed_task(db)
+        with _as_actor("Someone@else"):
+            result = json.loads(
+                jct_complete_task(task_id=task_id, success=True, summary="hijack")
+            )
+        assert result["success"] is False
+        assert result["error"]["code"] == "CLAIM_NOT_HELD"
+
+
+class TestNoSelfReview:
+    def test_mcp_self_review_refused(self, db, trace_dir):
+        _, _, ep_id = _completed_for_review(db)
+        result = json.loads(
+            jct_submit_review(
+                evidence_pack_id=ep_id, decision="approved", reason="lgtm"
+            )
+        )
+        assert result["success"] is False
+        assert result["error"]["code"] == "SELF_REVIEW_FORBIDDEN"
+
+    def test_mcp_review_ignores_reviewer_name_for_identity(self, db, trace_dir):
+        _, _, ep_id = _completed_for_review(db)
+        result = json.loads(
+            jct_submit_review(
+                evidence_pack_id=ep_id,
+                decision="approved",
+                reason="lgtm",
+                reviewer_name="George",  # display only; identity is still the executor
+            )
+        )
+        assert result["error"]["code"] == "SELF_REVIEW_FORBIDDEN"
+
+    def test_mcp_review_by_other_actor_accepted(self, db, trace_dir):
+        from devops_control_tower.db.cwom_models import CWOMReviewDecisionModel
+
+        _, run_id, ep_id = _completed_for_review(db)
+        with _as_actor("Reviewer@codejourney"):
+            result = json.loads(
+                jct_submit_review(
+                    evidence_pack_id=ep_id, decision="approved", reason="checked"
+                )
+            )
+        assert result["success"] is True, result
+        review = (
+            db.query(CWOMReviewDecisionModel)
+            .filter(CWOMReviewDecisionModel.id == result["review_id"])
+            .first()
+        )
+        assert review.reviewer_id == "Reviewer@codejourney"
+        assert review.for_run_id == run_id
+
+    def _rest_review(self, db, run_id, ep_id, issue_id, reviewer_id):
+        from devops_control_tower.cwom.review_decision import ReviewDecisionCreate
+        from devops_control_tower.cwom.routes import create_review
+
+        body = ReviewDecisionCreate(
+            for_evidence_pack={"kind": "EvidencePack", "id": ep_id},
+            for_run={"kind": "Run", "id": run_id},
+            for_issue={"kind": "Issue", "id": issue_id},
+            reviewer={"actor_kind": "human", "actor_id": reviewer_id},
+            decision="approved",
+            decision_reason="test",
+        )
+        return asyncio.run(create_review(body, db=db))
+
+    def _ids(self, db, run_id):
+        from devops_control_tower.db.cwom_models import CWOMRunModel
+
+        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
+        return run.for_issue_id
+
+    def test_rest_self_review_is_403(self, db, trace_dir):
+        from fastapi import HTTPException
+
+        _, run_id, ep_id = _completed_for_review(db)
+        with pytest.raises(HTTPException) as exc:
+            self._rest_review(
+                db, run_id, ep_id, self._ids(db, run_id), "test-executor@pytest"
+            )
+        assert exc.value.status_code == 403
+
+    def test_rest_review_by_human_accepted(self, db, trace_dir):
+        _, run_id, ep_id = _completed_for_review(db)
+        out = self._rest_review(db, run_id, ep_id, self._ids(db, run_id), "george")
+        assert out["status"] == "success"
+        assert out["review"]["decision"] == "approved"
+
+    def test_rest_review_run_must_match_evidence(self, db, trace_dir):
+        from fastapi import HTTPException
+
+        _, run_a, ep_a = _completed_for_review(db)
+        _, run_b, _ = _completed_for_review(db)
+        with pytest.raises(HTTPException) as exc:
+            self._rest_review(db, run_b, ep_a, self._ids(db, run_a), "george")
+        assert exc.value.status_code == 400
+
+
+class TestArtifactDigest:
+    def test_digest_and_size_recorded(self, db, trace_dir):
+        from devops_control_tower.db.cwom_models import CWOMArtifactModel
+
+        content = "## Findings\n\nnon-ASCII: é ✓\n"
+        expected = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        task_id, _ = _claimed_task(db)
+        art = json.loads(
+            jct_report_artifact(
+                task_id=task_id,
+                title="findings.md",
+                artifact_type="doc",
+                content=content,
+            )
+        )
+        assert art["success"] is True
+        assert art["digest"] == f"sha256:{expected}"
+        assert art["size_bytes"] == len(content.encode("utf-8"))
+
+        row = (
+            db.query(CWOMArtifactModel)
+            .filter(CWOMArtifactModel.id == art["artifact_id"])
+            .first()
+        )
+        assert row.digest == f"sha256:{expected}"
+        assert row.size_bytes == len(content.encode("utf-8"))
+
+        # The stored file hashes to the same digest
+        path = art["uri"].replace("file://", "", 1)
+        with open(path, "rb") as fh:
+            assert hashlib.sha256(fh.read()).hexdigest() == expected
+
+    def test_final_manifest_lists_digest_and_executor(self, db, trace_dir):
+        task_id, claim = _claimed_task(db)
+        art = json.loads(
+            jct_report_artifact(
+                task_id=task_id, title="out", artifact_type="doc", content="abc"
+            )
+        )
+        jct_complete_task(task_id=task_id, success=True, summary="ok")
+        manifest_path = os.path.join(trace_dir, claim["run_id"], "manifest.json")
+        with open(manifest_path) as fh:
+            manifest = json.load(fh)
+        assert manifest["executor"]["worker_id"] == "test-executor@pytest"
+        assert manifest["artifacts"][0]["digest"] == art["digest"]
+        assert manifest["artifacts"][0]["size_bytes"] == 3
+
+
+class TestClaimLeases:
+    def test_claim_sets_lease_budget_plus_grace(self, db, trace_dir):
+        from devops_control_tower.db.models import TaskModel
+        from devops_control_tower.worker.leases import _as_utc
+
+        before = datetime.now(timezone.utc)
+        task_id, claim = _claimed_task(db, budget=600)
+        task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        lease = _as_utc(task.lease_expires_at)
+        assert before + timedelta(seconds=900) <= lease
+        assert lease <= datetime.now(timezone.utc) + timedelta(seconds=901)
+        assert claim["lease_expires_at"]
+
+    def test_expired_lease_requeued_on_list(self, db, trace_dir):
+        from devops_control_tower.db.audit_models import AuditLogModel
+        from devops_control_tower.db.cwom_models import CWOMRunModel
+
+        task_id, claim = _claimed_task(db)
+        _expire_lease(db, task_id)
+
+        listed = json.loads(jct_list_tasks())
+        assert task_id in [t["task_id"] for t in listed["tasks"]]
+
+        task = json.loads(jct_get_task(task_id))["task"]
+        assert task["status"] == "queued"
+        assert task["assigned_to"] is None
+        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
+        assert run.status == "failed"
+        assert run.failure["code"] == "LEASE_EXPIRED"
+        audit = (
+            db.query(AuditLogModel)
+            .filter(
+                AuditLogModel.entity_kind == "Task",
+                AuditLogModel.entity_id == task_id,
+                AuditLogModel.action == "status_changed",
+            )
+            .all()
+        )
+        assert any(a.actor_id.startswith("lease-reaper") for a in audit)
+
+    def test_late_completion_after_reclaim_refused(self, db, trace_dir):
+        task_id, first = _claimed_task(db)
+        _expire_lease(db, task_id)
+
+        # Another executor reclaims the task
+        with _as_actor("Second@executor"):
+            second = json.loads(jct_claim_task(task_id))
+        assert second["success"] is True, second
+        assert second["run_id"] != first["run_id"]
+
+        # The first executor's late completion is refused
+        late = json.loads(
+            jct_complete_task(task_id=task_id, success=True, summary="late")
+        )
+        assert late["success"] is False
+        assert late["error"]["code"] in ("CLAIM_NOT_HELD", "CLAIM_LOST")
+
+        # The second executor can still complete
+        with _as_actor("Second@executor"):
+            ok = json.loads(
+                jct_complete_task(task_id=task_id, success=True, summary="ok")
+            )
+        assert ok["success"] is True, ok
+
+    def test_same_actor_stale_claim_refused(self, db, trace_dir):
+        """Same identity, new session: the stale run's late completion is refused."""
+        task_id, first = _claimed_task(db)
+        _expire_lease(db, task_id)
+        stale_claim = dict(_active_claims[task_id])
+        _active_claims.clear()  # simulate a new session for the same identity
+        second = json.loads(jct_claim_task(task_id))
+        assert second["success"] is True
+        _active_claims[task_id] = stale_claim  # the old session still holds the old run
+        late = json.loads(
+            jct_complete_task(task_id=task_id, success=True, summary="late")
+        )
+        assert late["success"] is False
+        assert late["error"]["code"] == "CLAIM_LOST"
+
+    def test_report_after_expiry_refused(self, db, trace_dir):
+        task_id, _ = _claimed_task(db)
+        _expire_lease(db, task_id)
+        result = json.loads(
+            jct_report_artifact(
+                task_id=task_id, title="late", artifact_type="doc", content="x"
+            )
+        )
+        assert result["success"] is False
+        assert result["error"]["code"] in (
+            "TASK_NOT_RUNNING",
+            "NO_ACTIVE_CLAIM",
+            "CLAIM_LOST",
+        )
+
+    def test_unexpired_lease_not_requeued(self, db, trace_dir):
+        from devops_control_tower.worker.leases import requeue_expired
+
+        task_id, _ = _claimed_task(db)
+        assert requeue_expired(db) == []
+        assert json.loads(jct_get_task(task_id))["task"]["status"] == "running"
+
+    def test_completion_clears_lease(self, db, trace_dir):
+        from devops_control_tower.db.models import TaskModel
+
+        task_id, _ = _claimed_task(db)
+        jct_complete_task(task_id=task_id, success=True, summary="ok")
+        task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        assert task.lease_expires_at is None
+
+
+class TestWorkerLease:
+    def test_worker_claim_sets_lease_and_reaps(self, db, trace_dir):
+        from devops_control_tower.db.models import TaskModel
+        from devops_control_tower.worker.leases import requeue_expired
+        from devops_control_tower.worker.loop import WorkerLoop
+
+        task_id = _seed_queued_task(db)
+        worker = WorkerLoop(executor_type="stub")
+        claimed = worker._claim_task(db)
+        assert claimed is not None and str(claimed.id) == task_id
+        assert claimed.assigned_to == worker.worker_id
+        assert claimed.lease_expires_at is not None
+
+        _expire_lease(db, task_id)
+        assert requeue_expired(db, actor_id=f"lease-reaper:{worker.worker_id}") == [
+            task_id
+        ]
+        task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        db.refresh(task)
+        assert task.status == "queued"

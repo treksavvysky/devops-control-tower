@@ -36,6 +36,7 @@ from ..db.cwom_models import (
 )
 from ..db.models import TaskModel
 from .executor import ExecutionContext, ExecutionResult, get_executor
+from .leases import lease_expiry, requeue_expired
 from .pipeline import apply_review_policy, run_prove
 from .prover import Prover
 from .storage import create_trace_store, get_trace_uri
@@ -114,6 +115,9 @@ class WorkerLoop:
         """
         db = SessionLocal()
         try:
+            # Requeue claims whose lease has expired (G7)
+            requeue_expired(db, actor_id=f"lease-reaper:{self.worker_id}")
+
             # Find and claim queued tasks
             task = self._claim_task(db)
             if task is None:
@@ -150,22 +154,25 @@ class WorkerLoop:
         if task is None:
             return None
 
-        # Atomically claim it (optimistic locking)
+        # Atomically claim it (optimistic locking), with a lease
         # Only update if status is still 'queued'
+        now = datetime.now(timezone.utc)
         result = db.execute(
             text(
                 """
                 UPDATE tasks
                 SET status = 'running',
                     started_at = :started_at,
-                    assigned_to = :worker_id
+                    assigned_to = :worker_id,
+                    lease_expires_at = :lease_expires_at
                 WHERE id = :task_id AND status = 'queued'
             """
             ),
             {
                 "task_id": str(task.id),
-                "started_at": datetime.now(timezone.utc),
+                "started_at": now,
                 "worker_id": self.worker_id,
+                "lease_expires_at": lease_expiry(task.time_budget_seconds, now),
             },
         )
         db.commit()
@@ -456,6 +463,7 @@ class WorkerLoop:
         # Update task
         task.status = "completed" if result.success else "failed"
         task.completed_at = now
+        task.lease_expires_at = None
         task.result = result.outputs
         task.trace_path = store.get_uri()
 
@@ -564,6 +572,7 @@ class WorkerLoop:
         # Update task
         task.status = "failed"
         task.completed_at = now
+        task.lease_expires_at = None
         task.error = error
 
         # Write error to trace if store available

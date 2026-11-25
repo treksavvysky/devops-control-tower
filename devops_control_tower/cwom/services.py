@@ -41,6 +41,19 @@ from .repo import RepoCreate
 from .run import RunCreate, RunUpdate
 
 
+class SelfReviewError(ValueError):
+    """Raised when a reviewer tries to review a run they executed (DEVOPS-CON-3, G3)."""
+
+
+def run_executor_id(run: Any) -> Optional[str]:
+    """Identity of the actor that executed a run, from its executor record."""
+    executor = getattr(run, "executor", None)
+    if isinstance(executor, dict):
+        worker_id = executor.get("worker_id") or executor.get("actor_id")
+        return str(worker_id) if worker_id else None
+    return None
+
+
 class ImmutabilityError(Exception):
     """Raised when attempting to modify an immutable object."""
 
@@ -1094,13 +1107,26 @@ class ReviewDecisionService:
                 f"Issue '{issue_id}' is not under review (status: {issue.status})"
             )
 
-        # Get run
+        # Get run; it must be the run the evidence pack was produced for
         run_id = review_data["for_run"]["id"]
+        if evidence_pack.for_run_id and run_id != evidence_pack.for_run_id:
+            raise ValueError(
+                f"Run '{run_id}' does not match EvidencePack '{ep_id}' "
+                f"(evidence is for run '{evidence_pack.for_run_id}')"
+            )
         run = self.db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
 
         now = datetime.now(timezone.utc)
         reviewer = review_data["reviewer"]
         decision = review_data["decision"]
+
+        # No self-review: the executor of a run may not review it
+        executor_id = run_executor_id(run)
+        reviewer_id = reviewer.get("actor_id") if isinstance(reviewer, dict) else None
+        if executor_id and reviewer_id and reviewer_id == executor_id:
+            raise SelfReviewError(
+                f"Reviewer '{reviewer_id}' executed run '{run_id}' and cannot review it"
+            )
 
         # Create review decision
         db_review = CWOMReviewDecisionModel(
