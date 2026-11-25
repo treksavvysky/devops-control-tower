@@ -136,7 +136,8 @@ class TestTaskToCWOM:
 
         assert result.context_packet is not None
         assert result.context_packet.meta is not None
-        # Task inputs are stored in meta (ContextInputs only accepts documents/blobs/links)
+        # Task inputs are stored in meta
+        # (ContextInputs only accepts documents/blobs/links)
         meta = result.context_packet.meta
         assert meta.get("task_ref") == "main"
         assert meta.get("task_path") == "src/api"

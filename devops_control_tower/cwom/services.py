@@ -36,7 +36,7 @@ from .constraint_snapshot import ConstraintSnapshotCreate
 from .context_packet import ContextPacketCreate
 from .doctrine_ref import DoctrineRefCreate
 from .issue import IssueCreate
-from .primitives import generate_ulid, utc_now
+from .primitives import generate_ulid
 from .repo import RepoCreate
 from .run import RunCreate, RunUpdate
 

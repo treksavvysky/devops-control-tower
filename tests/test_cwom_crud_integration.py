@@ -23,8 +23,6 @@ from devops_control_tower.cwom import (
     DoctrineRefCreate,
     DoctrineType,
     Executor,
-    Failure,
-    FailureCategory,
     IssueCreate,
     IssueType,
     ObjectKind,

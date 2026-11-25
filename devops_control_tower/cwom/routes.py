@@ -25,7 +25,6 @@ from .services import (
     ContextPacketService,
     DoctrineRefService,
     EvidencePackService,
-    ImmutabilityError,
     IssueService,
     RepoService,
     ReviewDecisionService,
@@ -251,7 +250,10 @@ async def update_context_packet_blocked(packet_id: str) -> None:
         status_code=405,
         detail={
             "error": "IMMUTABILITY_VIOLATION",
-            "message": "ContextPackets are immutable. Create a new ContextPacket with an incremented version instead.",
+            "message": (
+                "ContextPackets are immutable. Create a new ContextPacket "
+                "with an incremented version instead."
+            ),
             "object_id": packet_id,
         },
     )
@@ -305,7 +307,10 @@ async def update_constraint_snapshot_blocked(snapshot_id: str) -> None:
         status_code=405,
         detail={
             "error": "IMMUTABILITY_VIOLATION",
-            "message": "ConstraintSnapshots are immutable. Create a new ConstraintSnapshot instead.",
+            "message": (
+                "ConstraintSnapshots are immutable. "
+                "Create a new ConstraintSnapshot instead."
+            ),
             "object_id": snapshot_id,
         },
     )
@@ -348,7 +353,10 @@ async def create_doctrine_ref(
     if existing:
         raise HTTPException(
             status_code=409,
-            detail=f"DoctrineRef '{doctrine.namespace}/{doctrine.name}@{doctrine.version}' already exists",
+            detail=(
+                f"DoctrineRef '{doctrine.namespace}/{doctrine.name}"
+                f"@{doctrine.version}' already exists"
+            ),
         )
 
     db_doctrine = service.create(doctrine)

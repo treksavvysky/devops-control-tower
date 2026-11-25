@@ -53,7 +53,8 @@ class TaskCreateLegacyV1(BaseModel):
     """
     JCT V1 Task Specification.
 
-    This is the legacy compatibility intake model for creating tasks in Jules Control Tower.
+    This is the legacy compatibility intake model for creating tasks in
+    Jules Control Tower.
     See docs/specs/task-spec-v1.md for full documentation.
 
     Compatibility Layer (temporary, will be removed in V2):
@@ -95,7 +96,7 @@ class TaskCreateLegacyV1(BaseModel):
 
     @model_validator(mode="after")
     def resolve_legacy_aliases(self) -> "TaskCreateLegacyV1":
-        """Resolve legacy field aliases to canonical fields for backwards compatibility."""
+        """Resolve legacy field aliases to canonical fields (back-compat)."""
         # Resolve 'type' -> 'operation'
         if self.operation is None and self.type is not None:
             object.__setattr__(self, "operation", self.type)
@@ -122,7 +123,10 @@ class TaskCreateLegacyV1(BaseModel):
                     "id": "alice",
                     "label": "Alice Developer",
                 },
-                "objective": 'Add a /healthz endpoint that returns {"status":"ok"} and a pytest that verifies 200 + body.',
+                "objective": (
+                    'Add a /healthz endpoint that returns {"status":"ok"} '
+                    "and a pytest that verifies 200 + body."
+                ),
                 "operation": "code_change",
                 "target": {
                     "repo": "myorg/example-service",
@@ -195,7 +199,9 @@ class TaskCreateV1(BaseModel):
                     "id": "operator",
                     "label": "Operator",
                 },
-                "objective": "Add a /healthz endpoint and a pytest that verifies 200 + body.",
+                "objective": (
+                    "Add a /healthz endpoint and a pytest that verifies 200 + body."
+                ),
                 "operation": "code_change",
                 "target": {"repo": "myorg/example-service", "ref": "main", "path": ""},
                 "constraints": {
@@ -211,5 +217,5 @@ class TaskCreateV1(BaseModel):
                 "evidence_requirements": ["test_healthz.py output", "coverage report"],
                 "metadata": {"tags": ["stage-1", "api"]},
             }
-        }
+        },
     )

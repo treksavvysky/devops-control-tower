@@ -4,18 +4,10 @@ API tests for ReviewDecision endpoints.
 Tests the review flow: POST review -> status transitions, GET, LIST.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 from devops_control_tower.api import app
-from devops_control_tower.db.base import get_db
-from devops_control_tower.db.cwom_models import (
-    CWOMEvidencePackModel,
-    CWOMIssueModel,
-    CWOMRepoModel,
-    CWOMReviewDecisionModel,
-    CWOMRunModel,
-)
+from devops_control_tower.db.cwom_models import CWOMEvidencePackModel
 
 # Use module-level client (DB configured in conftest.py)
 client = TestClient(app)

@@ -21,17 +21,23 @@ os.environ["JCT_ALLOWED_REPO_PREFIXES"] = "testorg/"
 # identity patch config.settings.
 os.environ.setdefault("JCT_ACTOR_ID", "test-executor@pytest")
 
-from devops_control_tower.core.orchestrator import Orchestrator
-from devops_control_tower.data.models.events import Event, EventPriority, EventTypes
-from devops_control_tower.db import base as db_base
-from devops_control_tower.db.base import Base, get_db
+# App imports must follow the environment setup above.
+from devops_control_tower.core.orchestrator import Orchestrator  # noqa: E402
+from devops_control_tower.data.models.events import (  # noqa: E402
+    Event,
+    EventPriority,
+    EventTypes,
+)
+from devops_control_tower.db import base as db_base  # noqa: E402
+from devops_control_tower.db.base import Base, get_db  # noqa: E402
 
 # =============================================================================
 # Shared Test Database Setup
 # =============================================================================
 
 # Create a single shared in-memory SQLite database for all tests
-# Using StaticPool to ensure the same connection is reused (required for in-memory SQLite)
+# Using StaticPool to ensure the same connection is reused
+# (required for in-memory SQLite)
 TEST_DATABASE_URL = "sqlite:///:memory:"
 test_engine = create_engine(
     TEST_DATABASE_URL,

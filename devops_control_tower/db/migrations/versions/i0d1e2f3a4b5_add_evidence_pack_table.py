@@ -115,7 +115,8 @@ def upgrade() -> None:
         ),
     )
 
-    # Note: Indexes on verdict, evaluated_at, created_at are created via table definition
+    # Note: Indexes on verdict, evaluated_at, created_at are created via the
+    # table definition
     # Additional composite indexes can be added here if needed
 
 

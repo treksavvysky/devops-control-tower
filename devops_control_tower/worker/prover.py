@@ -16,15 +16,11 @@ Verdict Logic:
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -33,11 +29,10 @@ from ..db.cwom_models import (
     CWOMArtifactModel,
     CWOMContextPacketModel,
     CWOMEvidencePackModel,
-    CWOMIssueModel,
     CWOMRunModel,
 )
 from ..db.models import TaskModel
-from .storage import TraceStore, create_trace_store
+from .storage import TraceStore
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +304,10 @@ class Prover:
                     criterion=criterion,
                     index=i,
                     status="unverified",
-                    reason="v0: Automated verification not available. Requires LLM evaluation in v1.",
+                    reason=(
+                        "v0: Automated verification not available. "
+                        "Requires LLM evaluation in v1."
+                    ),
                 )
             )
             checks_skipped += 1

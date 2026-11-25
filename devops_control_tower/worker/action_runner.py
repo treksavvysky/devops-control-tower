@@ -9,7 +9,6 @@ to all downstream calls. This module provides:
 
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -266,8 +265,6 @@ class HttpActionRunner(ActionRunner):
         For Sprint-0, this falls back to stub behavior.
         In later sprints, this will make actual HTTP calls.
         """
-        started_at = datetime.now(timezone.utc)
-
         self.logger.info(
             "http_action_start",
             action_name=action_name,

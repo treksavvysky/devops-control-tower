@@ -13,7 +13,8 @@ load_dotenv()
 # add project to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from devops_control_tower.db import cwom_models  # noqa: E402
+# Imported for its side effect: registers the CWOM tables on Base.metadata.
+from devops_control_tower.db import cwom_models  # noqa: E402,F401
 from devops_control_tower.db import models  # noqa: E402
 from devops_control_tower.db.base import (  # noqa: E402
     DEFAULT_DATABASE_URL,

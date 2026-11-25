@@ -10,7 +10,6 @@ These tests verify that:
 
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import inspect
 
 

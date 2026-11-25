@@ -9,16 +9,13 @@ Following the CWOM spec guidelines:
 - Do not store primary relationships solely as JSON arrays
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from sqlalchemy import (
     JSON,
-    Boolean,
     Column,
     DateTime,
     Enum,
-    Float,
     ForeignKey,
     Index,
     Integer,

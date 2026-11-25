@@ -56,7 +56,7 @@ Examples:
 
     args = parser.parse_args()
 
-    print(f"Starting JCT Worker...")
+    print("Starting JCT Worker...")
     print(f"  Executor: {args.executor}")
     print(f"  Poll interval: {args.poll_interval or 'from config'}")
     print(f"  Claim limit: {args.claim_limit or 'from config'}")

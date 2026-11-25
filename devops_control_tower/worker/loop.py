@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -38,7 +37,6 @@ from ..db.models import TaskModel
 from .executor import ExecutionContext, ExecutionResult, get_executor
 from .leases import lease_expiry, requeue_expired
 from .pipeline import apply_review_policy, run_prove
-from .prover import Prover
 from .storage import create_trace_store, get_trace_uri
 
 logger = logging.getLogger(__name__)

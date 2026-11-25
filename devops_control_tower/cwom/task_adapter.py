@@ -228,13 +228,14 @@ def task_to_cwom(
     # 4. Create ContextPacket
     context_service = ContextPacketService(db)
 
-    # Task inputs go to meta, not inputs (ContextInputs only accepts documents/data_blobs/links)
+    # Task inputs go to meta, not inputs
+    # (ContextInputs only accepts documents/data_blobs/links)
     inputs_data = task_data.get("inputs", {})
 
     context_create = ContextPacketCreate(
         for_issue=Ref(kind=ObjectKind.ISSUE, id=issue.id),
         version="1.0",
-        summary=f"Initial context from JCT task",
+        summary="Initial context from JCT task",
         # ContextInputs is for documents/blobs - leave empty, use meta for task inputs
         assumptions=[
             f"Target branch: {repo_ref}",

@@ -4,14 +4,13 @@ Enhanced FastAPI application with full API endpoints.
 
 from __future__ import annotations
 
-import importlib.metadata
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import structlog
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -26,13 +25,7 @@ from .cwom.task_adapter import task_to_cwom
 from .data.models.events import Event, EventPriority, EventTypes
 from .db.audit_service import AuditService
 from .db.base import get_db, init_database
-from .db.services import (
-    ArtifactService,
-    EventService,
-    JobService,
-    TaskService,
-    WorkflowService,
-)
+from .db.services import EventService, TaskService, WorkflowService
 from .gpt_openapi import build_gpt_openapi_spec
 from .policy import PolicyError
 from .policy import evaluate as evaluate_policy
@@ -103,8 +96,10 @@ app.add_middleware(
 # Include CWOM routes
 app.include_router(cwom_router)
 
-from fastapi.responses import JSONResponse
-from .mcp import server as mcp_server
+
+# Imported after the app is assembled (mcp imports app-level modules).
+from .mcp import server as mcp_server  # noqa: E402
+
 
 class McpAuthMiddleware:
     def __init__(self, app):
@@ -114,14 +109,17 @@ class McpAuthMiddleware:
         if scope["type"] == "http":
             from starlette.requests import Request
             from starlette.responses import JSONResponse
+
             from devops_control_tower.config import get_settings
 
             request = Request(scope, receive)
             path = request.url.path
-            
+
             is_mcp = path.startswith("/mcp")
-            is_message_with_session = path.startswith("/mcp/messages") and request.query_params.get("session_id")
-            
+            is_message_with_session = path.startswith(
+                "/mcp/messages"
+            ) and request.query_params.get("session_id")
+
             if is_mcp and not is_message_with_session:
                 settings = get_settings()
                 if settings.jct_api_key:
@@ -131,16 +129,17 @@ class McpAuthMiddleware:
                         token = auth_header[7:]
                     if not token:
                         token = request.query_params.get("api_key")
-                    
+
                     if token != settings.jct_api_key:
                         response = JSONResponse(
                             status_code=401,
-                            content={"detail": "Invalid or missing API key"}
+                            content={"detail": "Invalid or missing API key"},
                         )
                         await response(scope, receive, send)
                         return
 
         await self.app(scope, receive, send)
+
 
 app.add_middleware(McpAuthMiddleware)
 
@@ -522,7 +521,9 @@ async def enqueue_task(
                 db.rollback()
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to create CWOM objects (task rolled back): {str(e)}",
+                    detail=(
+                        "Failed to create CWOM objects (task rolled back): " f"{str(e)}"
+                    ),
                 )
 
         response = {

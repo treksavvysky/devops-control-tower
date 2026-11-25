@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import structlog
 from sqlalchemy.orm import Session
 
 from ..db.models import TaskModel
 from ..db.services import ArtifactService, JobService, TaskService
-from .action_runner import ActionRunner, StubActionRunner
+from .action_runner import StubActionRunner
 
 logger = structlog.get_logger()
 

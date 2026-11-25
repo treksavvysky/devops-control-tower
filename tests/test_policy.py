@@ -84,9 +84,10 @@ class TestOperationValidation:
         assert result.operation == operation
 
     def test_invalid_operation_raises_policy_error(self):
-        # We can't directly create a TaskCreateLegacyV1 with invalid operation due to Literal type
-        # So we test by checking the policy module's behavior when given an unexpected value
-        # This would be caught at Pydantic validation, so the test is more about documentation
+        # We can't directly create a TaskCreateLegacyV1 with an invalid operation
+        # (Literal type), so we check the policy module's behaviour when given an
+        # unexpected value. Pydantic validation would catch it first, so this test
+        # is mostly documentation.
         pass
 
 

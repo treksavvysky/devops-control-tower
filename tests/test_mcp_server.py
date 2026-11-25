@@ -11,7 +11,6 @@ import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from typing import Generator
 from unittest.mock import patch
 
 import pytest
@@ -22,8 +21,8 @@ from sqlalchemy.pool import StaticPool
 # Set test env before any app imports
 os.environ.setdefault("JCT_ALLOWED_REPO_PREFIXES", "testorg/")
 
-from devops_control_tower.db import base as db_base
-from devops_control_tower.db.base import Base
+from devops_control_tower.db import base as db_base  # noqa: E402
+from devops_control_tower.db.base import Base  # noqa: E402
 
 # Create test DB
 _test_engine = create_engine(
@@ -37,10 +36,10 @@ _TestSession = sessionmaker(autocommit=False, autoflush=False, bind=_test_engine
 db_base.SessionLocal = _TestSession
 
 
-import devops_control_tower.mcp as mcp_module
+import devops_control_tower.mcp as mcp_module  # noqa: E402
 
 # Now import MCP tools (after DB patch)
-from devops_control_tower.mcp import (
+from devops_control_tower.mcp import (  # noqa: E402
     _active_claims,
     jct_claim_task,
     jct_complete_task,
@@ -772,9 +771,7 @@ class TestExecutorIdentity:
         assert run.executor["worker_id"] == "Codex@codejourney"
 
         agent_rows = (
-            db.query(AuditLogModel)
-            .filter(AuditLogModel.actor_kind == "agent")
-            .all()
+            db.query(AuditLogModel).filter(AuditLogModel.actor_kind == "agent").all()
         )
         assert agent_rows
         assert all(r.actor_id != "claude-code" for r in agent_rows)
