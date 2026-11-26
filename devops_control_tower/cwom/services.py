@@ -1077,11 +1077,19 @@ class ReviewDecisionService:
         actor_kind: str = "system",
         actor_id: str = "cwom-service",
         trace_id: Optional[str] = None,
+        commit: bool = True,
     ) -> CWOMReviewDecisionModel:
         """Create a ReviewDecision and update Issue/Run status.
 
         On approved: Issue/Run -> done
         On rejected/needs_changes: Issue/Run -> failed
+
+        The evidence pack, run and issue must belong together: the evidence was
+        produced for this run, and the run (and the evidence) are for this
+        issue. A review can't move an issue using another issue's evidence
+        (PR #12 review C6), whoever the reviewer is. The decision, status
+        changes and audit entries commit together (``commit=False``: they join
+        the caller's transaction).
         """
         from .primitives import generate_ulid
 
@@ -1107,14 +1115,25 @@ class ReviewDecisionService:
                 f"Issue '{issue_id}' is not under review (status: {issue.status})"
             )
 
-        # Get run; it must be the run the evidence pack was produced for
+        # Get run; it must be the run the evidence pack was produced for, and
+        # both must be for the issue under review (C6)
         run_id = review_data["for_run"]["id"]
-        if evidence_pack.for_run_id and run_id != evidence_pack.for_run_id:
+        if not evidence_pack.for_run_id or run_id != evidence_pack.for_run_id:
             raise ValueError(
                 f"Run '{run_id}' does not match EvidencePack '{ep_id}' "
                 f"(evidence is for run '{evidence_pack.for_run_id}')"
             )
         run = self.db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run '{run_id}' not found")
+        if run.for_issue_id != issue_id or (
+            evidence_pack.for_issue_id and evidence_pack.for_issue_id != issue_id
+        ):
+            raise ValueError(
+                f"EvidencePack '{ep_id}' and Run '{run_id}' are for issue "
+                f"'{run.for_issue_id}', not '{issue_id}'; a review can only "
+                "decide the issue its evidence was produced for"
+            )
 
         now = datetime.now(timezone.utc)
         reviewer = review_data["reviewer"]
@@ -1191,11 +1210,11 @@ class ReviewDecisionService:
         if run:
             run.updated_at = now
 
-        self.db.commit()
-        self.db.refresh(db_review)
+        self.db.flush()
 
-        # Audit logs
-        self.audit.log_create(
+        # Audit logs (same transaction)
+        audit = AuditService(self.db, commit=False)
+        audit.log_create(
             entity_kind="ReviewDecision",
             entity_id=db_review.id,
             after=db_review.to_dict(),
@@ -1204,7 +1223,7 @@ class ReviewDecisionService:
             trace_id=trace_id,
         )
 
-        self.audit.log_status_change(
+        audit.log_status_change(
             entity_kind="Issue",
             entity_id=issue.id,
             old_status=old_issue_status,
@@ -1216,7 +1235,7 @@ class ReviewDecisionService:
         )
 
         if run:
-            self.audit.log_status_change(
+            audit.log_status_change(
                 entity_kind="Run",
                 entity_id=run.id,
                 old_status=old_run_status,
@@ -1227,6 +1246,9 @@ class ReviewDecisionService:
                 note=f"Review decision: {decision}",
             )
 
+        if commit:
+            self.db.commit()
+            self.db.refresh(db_review)
         return db_review
 
     def get(self, review_id: str) -> Optional[CWOMReviewDecisionModel]:

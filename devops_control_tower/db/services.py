@@ -566,8 +566,9 @@ class JobService:
         self,
         job_id: str,
         result: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> Optional[JobModel]:
-        """Mark a job as completed."""
+        """Mark a job as completed (``commit=False``: join the caller's transaction)."""
         job = self.get_job(job_id)
         if not job or job.status != "running":
             return None
@@ -578,6 +579,9 @@ class JobService:
         if result:
             job.result = result
 
+        if not commit:
+            self.db.flush()
+            return job
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -587,8 +591,9 @@ class JobService:
         job_id: str,
         error: str,
         result: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> Optional[JobModel]:
-        """Mark a job as failed."""
+        """Mark a job as failed (``commit=False``: join the caller's transaction)."""
         job = self.get_job(job_id)
         if not job:
             return None
@@ -600,6 +605,9 @@ class JobService:
         if result:
             job.result = result
 
+        if not commit:
+            self.db.flush()
+            return job
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -638,6 +646,7 @@ class ArtifactService:
         size_bytes: Optional[int] = None,
         checksum: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> ArtifactModel:
         """Create a new artifact.
 
@@ -671,6 +680,9 @@ class ArtifactService:
         )
 
         self.db.add(db_artifact)
+        if not commit:  # join the caller's transaction (fenced result writes)
+            self.db.flush()
+            return db_artifact
         self.db.commit()
         self.db.refresh(db_artifact)
         return db_artifact

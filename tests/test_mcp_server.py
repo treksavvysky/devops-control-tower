@@ -56,6 +56,43 @@ from devops_control_tower.mcp import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
+# Executor model: an executor remembers the claim_generation it was issued and
+# passes it on report/complete (required since PR #12 review C3). Tests that
+# exercise stale or foreign tokens pass claim_generation explicitly.
+# ---------------------------------------------------------------------------
+_issued_tokens: dict = {}
+_mcp_claim_task, _mcp_complete_task, _mcp_report_artifact = (
+    jct_claim_task,
+    jct_complete_task,
+    jct_report_artifact,
+)
+
+
+def _remembered(task_id, kw):
+    if "claim_generation" not in kw:
+        gen = _issued_tokens.get((mcp_module._actor_id(), task_id))
+        if gen is not None:
+            kw["claim_generation"] = gen
+    return kw
+
+
+def jct_claim_task(task_id, *args, **kwargs):  # noqa: F811
+    out = _mcp_claim_task(task_id, *args, **kwargs)
+    data = json.loads(out)
+    if data.get("success"):
+        _issued_tokens[(mcp_module._actor_id(), task_id)] = data["claim_generation"]
+    return out
+
+
+def jct_complete_task(task_id, *args, **kwargs):  # noqa: F811
+    return _mcp_complete_task(task_id, *args, **_remembered(task_id, kwargs))
+
+
+def jct_report_artifact(task_id, *args, **kwargs):  # noqa: F811
+    return _mcp_report_artifact(task_id, *args, **_remembered(task_id, kwargs))
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -309,9 +346,9 @@ class TestReportArtifact:
                 content="test",
             )
         )
-        # Should error because no active claim
+        # Should error: the task isn't running (no claim)
         assert result["success"] is False
-        assert result["error"]["code"] == "NO_ACTIVE_CLAIM"
+        assert result["error"]["code"] == "TASK_NOT_RUNNING"
 
 
 # ---------------------------------------------------------------------------
@@ -780,10 +817,19 @@ class TestExecutorIdentity:
         }
 
     def test_other_actor_cannot_complete(self, db, trace_dir):
-        task_id, _ = _claimed_task(db)
+        task_id, claim = _claimed_task(db)
         with _as_actor("Someone@else"):
-            result = json.loads(
+            no_token = json.loads(
                 jct_complete_task(task_id=task_id, success=True, summary="hijack")
+            )
+            assert no_token["error"]["code"] == "CLAIM_TOKEN_REQUIRED"
+            result = json.loads(  # even knowing the holder's generation
+                jct_complete_task(
+                    task_id=task_id,
+                    success=True,
+                    summary="hijack",
+                    claim_generation=claim["claim_generation"],
+                )
             )
         assert result["success"] is False
         assert result["error"]["code"] == "CLAIM_NOT_HELD"
@@ -1023,8 +1069,13 @@ class TestClaimLeases:
         second = json.loads(jct_claim_task(task_id))
         assert second["success"] is True
         _active_claims[task_id] = stale_claim  # the old session still holds the old run
-        late = json.loads(
-            jct_complete_task(task_id=task_id, success=True, summary="late")
+        late = json.loads(  # the old session presents the generation it was issued
+            jct_complete_task(
+                task_id=task_id,
+                success=True,
+                summary="late",
+                claim_generation=first["claim_generation"],
+            )
         )
         assert late["success"] is False
         assert late["error"]["code"] == "CLAIM_LOST"

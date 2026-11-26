@@ -18,6 +18,7 @@ from ..db.models import TaskModel
 from ..db.services import ArtifactService, JobService, TaskService
 from ..lifecycle import LifecycleError
 from ..lifecycle import claim as lifecycle_claim
+from ..lifecycle import fence as lifecycle_fence
 from ..lifecycle import finish as lifecycle_finish
 from .action_runner import StubActionRunner
 
@@ -103,11 +104,27 @@ class Worker:
             now,
         )
         if token is None:
+            db.rollback()
             task_logger.error("task_claim_failed")
             job_service.fail_job(job_id, error="task not claimable (not queued)")
             return {"error": "Task not claimable"}
+        db.commit()
         job = job_service.start_job(job_id)
         task_logger.info("task_running")
+
+        def discard(code: str) -> Dict[str, Any]:
+            """The claim was lost: accept nothing; record it on our own job only."""
+            db.rollback()
+            job_service.fail_job(job_id, error=f"result discarded: {code}")
+            task_logger.warning("task_result_discarded", code=code)
+            return {
+                "task_id": task_id,
+                "job_id": job_id,
+                "trace_id": trace_id,
+                "status": "discarded",
+                "error": f"result discarded: {code}",
+                "artifacts": [],
+            }
 
         # Step 4: Execute the task via ActionRunner
         try:
@@ -116,29 +133,57 @@ class Worker:
                 task_id=task_id,
                 job_id=job_id,
             )
-
-            # Prepare inputs and constraints
             inputs = task.inputs or {}
             constraints = {
                 "time_budget_seconds": task.time_budget_seconds,
                 "allow_network": task.allow_network,
                 "allow_secrets": task.allow_secrets,
             }
-
-            # Execute the action (using operation as action name)
             action_result = action_runner.execute(
                 action_name=task.operation,
                 inputs=inputs,
                 constraints=constraints,
             )
-
             task_logger.info(
                 "action_executed",
                 success=action_result.success,
                 artifacts_count=len(action_result.artifacts),
             )
+        except Exception as e:
+            task_logger.exception("task_process_error", error=str(e))
+            db.rollback()
+            # Accept the failure only for a live claim, in one transaction
+            try:
+                lifecycle_fence(db, token)
+                error_artifact = artifact_service.create_artifact(
+                    task_id=task_id,
+                    job_id=job_id,
+                    trace_id=trace_id,
+                    kind="error",
+                    ref=f"worker_exception_{job_id}",
+                    content=f"Worker exception: {str(e)}",
+                    content_type="text/plain",
+                    commit=False,
+                )
+                lifecycle_finish(db, token, False, error=str(e))
+                job_service.fail_job(job_id, error=str(e), commit=False)
+                db.commit()
+            except LifecycleError as stale:
+                return discard(stale.code)
+            return {
+                "task_id": task_id,
+                "job_id": job_id,
+                "trace_id": trace_id,
+                "status": "failed",
+                "error": str(e),
+                "artifacts": [error_artifact.to_dict()],
+            }
 
-            # Step 5: Create artifact records
+        # Steps 5–6: accept the result in ONE transaction under the claim fence:
+        # artifacts, task transition and job status commit together, or nothing
+        # is accepted (PR #12 review C5).
+        try:
+            lifecycle_fence(db, token)
             created_artifacts = []
             for artifact_data in action_result.artifacts:
                 artifact = artifact_service.create_artifact(
@@ -153,26 +198,15 @@ class Worker:
                     size_bytes=artifact_data.get("size_bytes"),
                     checksum=artifact_data.get("checksum"),
                     meta=artifact_data.get("meta"),
+                    commit=False,
                 )
                 created_artifacts.append(artifact.to_dict())
-                task_logger.info(
-                    "artifact_created",
-                    artifact_id=artifact.id,
-                    kind=artifact.kind,
-                )
-
-            # Step 6: Update task and job status based on result
             if action_result.success:
                 lifecycle_finish(db, token, True, result=action_result.result)
-                db.commit()
-                job = job_service.complete_job(job_id, result=action_result.result)
-                task_logger.info("task_completed")
-            else:
-                job = job_service.fail_job(
-                    job_id,
-                    error=action_result.error or "Unknown error",
-                    result=action_result.result,
+                job_service.complete_job(
+                    job_id, result=action_result.result, commit=False
                 )
+            else:
                 lifecycle_finish(
                     db,
                     token,
@@ -180,51 +214,28 @@ class Worker:
                     error=action_result.error,
                     result=action_result.result,
                 )
-                db.commit()
-                task_logger.info("task_failed", error=action_result.error)
-
-            return {
-                "task_id": task_id,
-                "job_id": job_id,
-                "trace_id": trace_id,
-                "status": "completed" if action_result.success else "failed",
-                "result": action_result.result,
-                "error": action_result.error,
-                "artifacts": created_artifacts,
-            }
-
-        except Exception as e:
-            task_logger.exception("task_process_error", error=str(e))
-
-            # Mark job and task as failed (task only if this claim is still live)
-            db.rollback()
-            job_service.fail_job(job_id, error=str(e))
-            try:
-                lifecycle_finish(db, token, False, error=str(e))
-                db.commit()
-            except LifecycleError as stale:
-                db.rollback()
-                task_logger.warning("task_result_discarded", code=stale.code)
-
-            # Create error artifact
-            error_artifact = artifact_service.create_artifact(
-                task_id=task_id,
-                job_id=job_id,
-                trace_id=trace_id,
-                kind="error",
-                ref=f"worker_exception_{job_id}",
-                content=f"Worker exception: {str(e)}",
-                content_type="text/plain",
-            )
-
-            return {
-                "task_id": task_id,
-                "job_id": job_id,
-                "trace_id": trace_id,
-                "status": "failed",
-                "error": str(e),
-                "artifacts": [error_artifact.to_dict()],
-            }
+                job_service.fail_job(
+                    job_id,
+                    error=action_result.error or "Unknown error",
+                    result=action_result.result,
+                    commit=False,
+                )
+            db.commit()
+        except LifecycleError as stale:
+            return discard(stale.code)
+        task_logger.info(
+            "task_completed" if action_result.success else "task_failed",
+            artifacts=len(created_artifacts),
+        )
+        return {
+            "task_id": task_id,
+            "job_id": job_id,
+            "trace_id": trace_id,
+            "status": "completed" if action_result.success else "failed",
+            "result": action_result.result,
+            "error": action_result.error,
+            "artifacts": created_artifacts,
+        }
 
     def claim_and_process_one(self, db: Session) -> Optional[Dict[str, Any]]:
         """Claim and process one queued task.

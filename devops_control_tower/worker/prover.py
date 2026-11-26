@@ -98,8 +98,12 @@ class Prover:
         run: CWOMRunModel,
         task: TaskModel,
         trace_store: Optional[TraceStore] = None,
+        commit: bool = True,
     ) -> CWOMEvidencePackModel:
         """Evaluate a Run and create an Evidence Pack.
+
+        ``commit=False`` flushes instead, so the evidence pack commits with the
+        caller's proof stage (review C1).
 
         Args:
             db: Database session
@@ -139,6 +143,7 @@ class Prover:
             task=task,
             result=result,
             evidence_uri=evidence_uri,
+            commit=commit,
         )
 
         logger.info(
@@ -424,6 +429,7 @@ class Prover:
         task: TaskModel,
         result: ProofResult,
         evidence_uri: Optional[str],
+        commit: bool = True,
     ) -> CWOMEvidencePackModel:
         """Create EvidencePack record in database."""
         evidence_pack_id = str(uuid.uuid4())
@@ -486,7 +492,7 @@ class Prover:
         db.add(evidence_pack)
 
         # Audit log
-        audit = AuditService(db)
+        audit = AuditService(db, commit=commit)
         audit.log_create(
             entity_kind="EvidencePack",
             entity_id=evidence_pack_id,
@@ -497,6 +503,9 @@ class Prover:
             trace_id=task.trace_id,
         )
 
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
 
         return evidence_pack

@@ -24,6 +24,10 @@ UPDATE on (id, status, claim_generation) plus the lease condition. Never on
 timestamp equality (DEVOPS-CON-10), and never on holder identity alone, which
 isn't unique per claim (ABA; PR #12 review N1).
 
+Each task is handled in its own transaction: the task transition, the runs of
+exactly that claim attempt (selected by task ID and claim generation, never by
+issue), the issue and the audit entries commit together (review C1).
+
 Operator authorization: :func:`resolve_held_task` records the operator ID it
 is given but does not *verify* it. Anyone who can run ``dct-held`` against the
 DCT database (including an agent with a shell on that host) can resolve a
@@ -44,6 +48,7 @@ from ..db.cwom_models import CWOMIssueModel, CWOMRunModel
 from ..db.models import TaskModel
 from ..lifecycle import (
     LifecycleError,
+    attempt_runs,
     hold_expired,
     requeue_after_confirmed_termination,
     resolve_held,
@@ -81,16 +86,8 @@ def is_lease_expired(task: TaskModel, now: Optional[datetime] = None) -> bool:
 
 
 def _runs_for(db: Session, task: TaskModel, statuses: List[str]) -> List[CWOMRunModel]:
-    if not task.cwom_issue_id:
-        return []
-    return (
-        db.query(CWOMRunModel)
-        .filter(
-            CWOMRunModel.for_issue_id == task.cwom_issue_id,
-            CWOMRunModel.status.in_(statuses),
-        )
-        .all()
-    )
+    """Runs of the task's current claim attempt only."""
+    return attempt_runs(db, str(task.id), task.claim_generation or 0, statuses)
 
 
 def _issue_for(db: Session, task: TaskModel) -> Optional[CWOMIssueModel]:
@@ -102,10 +99,11 @@ def _issue_for(db: Session, task: TaskModel) -> Optional[CWOMIssueModel]:
 
 
 def _confirmed(confirmer: Optional[TerminationConfirmer], task: TaskModel) -> bool:
+    """Only a literal ``True`` confirms (review N1); anything else fails closed."""
     if confirmer is None:
         return False
     try:
-        return bool(confirmer(task))
+        return confirmer(task) is True
     except Exception as exc:  # fail closed: an erroring confirmer never requeues
         logger.warning("Termination confirmer failed for task %s: %s", task.id, exc)
         return False
@@ -119,7 +117,8 @@ def process_expired_leases(
 ) -> Dict[str, List[str]]:
     """Hold (or, with confirmed termination, requeue) tasks whose lease expired.
 
-    Returns ``{"held": [...], "requeued": [...]}``. Commits when anything changed.
+    Returns ``{"held": [...], "requeued": [...]}``. Each task commits in its
+    own transaction; a failure on one task is rolled back and logged.
     """
     now = now or datetime.now(timezone.utc)
     candidates = (
@@ -128,103 +127,121 @@ def process_expired_leases(
         .all()
     )
     out: Dict[str, List[str]] = {"held": [], "requeued": []}
-    audit = AuditService(db)
-
-    for task in candidates:
-        if not is_lease_expired(task, now):
+    expired = [t for t in candidates if is_lease_expired(t, now)]
+    for task in expired:
+        try:
+            outcome = _expire_one(db, task, actor_id, now, confirm_termination)
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Lease processing failed for task %s: %s", task.id, exc)
             continue
-        task_id = str(task.id)
-        holder = task.assigned_to or "unknown"
-        gen = task.claim_generation or 0
-        expired_at = _as_utc(task.lease_expires_at).isoformat()
+        if outcome:
+            out[outcome].append(str(task.id))
+    return out
 
-        if _confirmed(confirm_termination, task):
-            if not requeue_after_confirmed_termination(db, task, now):
-                continue
-            note = (
-                f"Claim generation {gen} by {holder} expired at {expired_at}; "
-                "termination confirmed; task requeued"
-            )
-            audit.log_status_change(
-                entity_kind="Task",
-                entity_id=task_id,
-                old_status="running",
-                new_status="queued",
-                actor_kind="system",
-                actor_id=actor_id,
-                note=note,
-                trace_id=task.trace_id,
-            )
-            for run in _runs_for(db, task, ["running"]):
-                run.status = "failed"
-                run.failure = {
-                    "code": LEASE_EXPIRED,
-                    "message": note,
-                    "termination": "confirmed",
-                }
-                audit.log_status_change(
-                    entity_kind="Run",
-                    entity_id=run.id,
-                    old_status="running",
-                    new_status="failed",
-                    actor_kind="system",
-                    actor_id=actor_id,
-                    note=note,
-                    trace_id=task.trace_id,
-                )
-            issue = _issue_for(db, task)
-            if issue and issue.status == "running":
-                issue.status = "planned"
-            out["requeued"].append(task_id)
-            logger.warning(
-                "Lease expired for task %s; termination confirmed; requeued", task_id
-            )
-            continue
 
-        reason = (
-            f"Claim generation {gen} by {holder} expired at {expired_at}; termination "
-            "of the previous holder not confirmed; held for operator resolution"
+def _expire_one(
+    db: Session,
+    task: TaskModel,
+    actor_id: str,
+    now: datetime,
+    confirm_termination: Optional[TerminationConfirmer],
+) -> Optional[str]:
+    """Hold or requeue one expired task in one transaction. Returns the outcome."""
+    audit = AuditService(db, commit=False)
+    task_id = str(task.id)
+    holder = task.assigned_to or "unknown"
+    gen = task.claim_generation or 0
+    expired_at = _as_utc(task.lease_expires_at).isoformat()
+
+    if _confirmed(confirm_termination, task):
+        if not requeue_after_confirmed_termination(db, task, True, now):
+            db.rollback()
+            return None
+        # Read the attempt's runs only now, holding the task's write lock: a
+        # launch that committed while we waited for the lock is included.
+        runs = _runs_for(db, task, ["running"])
+        note = (
+            f"Claim generation {gen} by {holder} expired at {expired_at}; "
+            "termination confirmed; task requeued"
         )
-        if not hold_expired(db, task, reason, now):
-            continue
         audit.log_status_change(
             entity_kind="Task",
             entity_id=task_id,
             old_status="running",
-            new_status="held",
+            new_status="queued",
             actor_kind="system",
             actor_id=actor_id,
-            note=reason,
+            note=note,
             trace_id=task.trace_id,
         )
-        for run in _runs_for(db, task, ["running"]):
-            run.status = "blocked"
+        for run in runs:
+            run.status = "failed"
             run.failure = {
                 "code": LEASE_EXPIRED,
-                "message": reason,
-                "termination": "unconfirmed",
+                "message": note,
+                "termination": "confirmed",
             }
             audit.log_status_change(
                 entity_kind="Run",
                 entity_id=run.id,
                 old_status="running",
-                new_status="blocked",
+                new_status="failed",
                 actor_kind="system",
                 actor_id=actor_id,
-                note=reason,
+                note=note,
                 trace_id=task.trace_id,
             )
         issue = _issue_for(db, task)
         if issue and issue.status == "running":
-            issue.status = "blocked"
-        out["held"].append(task_id)
-        logger.warning(
-            "Lease expired for task %s; termination unconfirmed; HELD", task_id
-        )
-
-    if out["held"] or out["requeued"]:
+            issue.status = "planned"
         db.commit()
-    return out
+        logger.warning(
+            "Lease expired for task %s; termination confirmed; requeued", task_id
+        )
+        return "requeued"
+
+    reason = (
+        f"Claim generation {gen} by {holder} expired at {expired_at}; termination "
+        "of the previous holder not confirmed; held for operator resolution"
+    )
+    if not hold_expired(db, task, reason, now):
+        db.rollback()
+        return None
+    runs = _runs_for(db, task, ["running"])  # after the lock (see above)
+    audit.log_status_change(
+        entity_kind="Task",
+        entity_id=task_id,
+        old_status="running",
+        new_status="held",
+        actor_kind="system",
+        actor_id=actor_id,
+        note=reason,
+        trace_id=task.trace_id,
+    )
+    for run in runs:
+        run.status = "blocked"
+        run.failure = {
+            "code": LEASE_EXPIRED,
+            "message": reason,
+            "termination": "unconfirmed",
+        }
+        audit.log_status_change(
+            entity_kind="Run",
+            entity_id=run.id,
+            old_status="running",
+            new_status="blocked",
+            actor_kind="system",
+            actor_id=actor_id,
+            note=reason,
+            trace_id=task.trace_id,
+        )
+    issue = _issue_for(db, task)
+    if issue and issue.status == "running":
+        issue.status = "blocked"
+    db.commit()
+    logger.warning("Lease expired for task %s; termination unconfirmed; HELD", task_id)
+    return "held"
 
 
 def list_held_tasks(db: Session) -> List[TaskModel]:
@@ -272,16 +289,24 @@ def resolve_held_task(
         raise HeldTaskError(f"task {task_id} is not held (status {task.status})")
 
     try:
-        changed = resolve_held(db, task, action)
+        changed = resolve_held(
+            db,
+            task,
+            action,
+            termination_confirmed=termination_confirmed,
+            error=(
+                f"Held task failed by operator {operator_id}: {note}"
+                if action == "fail"
+                else None
+            ),
+        )
     except LifecycleError as exc:
+        db.rollback()
         raise HeldTaskError(str(exc)) from exc
     if not changed:
+        db.rollback()
         raise HeldTaskError(f"task {task_id} changed concurrently; not resolved")
-    if action == "fail":
-        db.query(TaskModel).filter(TaskModel.id == task.id).update(
-            {"error": f"Held task failed by operator {operator_id}: {note}"},
-            synchronize_session=False,
-        )
+    runs = _runs_for(db, task, ["blocked"])  # read under the task's write lock
     new_status = "queued" if action == "requeue" else "failed"
     run_status = "failed"
     issue_status = "planned" if action == "requeue" else "failed"
@@ -292,7 +317,7 @@ def resolve_held_task(
         f"{' (termination confirmed by operator)' if termination_confirmed else ''}. "
         f"{note}"
     )
-    audit = AuditService(db)
+    audit = AuditService(db, commit=False)
     audit.log_status_change(
         entity_kind="Task",
         entity_id=str(task.id),
@@ -303,7 +328,7 @@ def resolve_held_task(
         note=full_note,
         trace_id=task.trace_id,
     )
-    for run in _runs_for(db, task, ["blocked"]):
+    for run in runs:
         run.status = run_status
         failure = dict(run.failure or {})
         failure.update(

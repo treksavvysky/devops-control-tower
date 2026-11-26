@@ -317,7 +317,11 @@ def test_stale_holder_writes_refused_after_hold(backend, clock):
     claim = _mcp_claim(task_id)
     ok = json.loads(
         mcp_module.jct_report_artifact(
-            task_id=task_id, title="early", artifact_type="doc", content="before expiry"
+            task_id=task_id,
+            title="early",
+            artifact_type="doc",
+            content="before expiry",
+            claim_generation=claim["claim_generation"],
         )
     )
     assert ok["success"]
@@ -325,11 +329,20 @@ def test_stale_holder_writes_refused_after_hold(backend, clock):
     json.loads(mcp_module.jct_list_tasks())  # hold
     late_art = json.loads(
         mcp_module.jct_report_artifact(
-            task_id=task_id, title="late", artifact_type="doc", content="after expiry"
+            task_id=task_id,
+            title="late",
+            artifact_type="doc",
+            content="after expiry",
+            claim_generation=claim["claim_generation"],
         )
     )
     late_done = json.loads(
-        mcp_module.jct_complete_task(task_id=task_id, success=True, summary="late")
+        mcp_module.jct_complete_task(
+            task_id=task_id,
+            success=True,
+            summary="late",
+            claim_generation=claim["claim_generation"],
+        )
     )
     assert late_art["success"] is False and late_done["success"] is False
     assert late_art["error"]["code"] in ("TASK_NOT_RUNNING", "CLAIM_LOST")
@@ -540,11 +553,20 @@ def _run_to_evidence(backend, metadata=None):
     assert claim["success"]
     json.loads(
         mcp_module.jct_report_artifact(
-            task_id=task_id, title="report", artifact_type="report", content="ok"
+            task_id=task_id,
+            title="report",
+            artifact_type="report",
+            content="ok",
+            claim_generation=claim["claim_generation"],
         )
     )
     done = json.loads(
-        mcp_module.jct_complete_task(task_id=task_id, success=True, summary="ok")
+        mcp_module.jct_complete_task(
+            task_id=task_id,
+            success=True,
+            summary="ok",
+            claim_generation=claim["claim_generation"],
+        )
     )
     assert done["success"], done
     return task_id, claim["run_id"], done
@@ -797,11 +819,20 @@ def test_b3_expired_holder_refused_even_if_reaper_fails(backend, monkeypatch, re
     )
     art = json.loads(
         mcp_module.jct_report_artifact(
-            task_id=task_id, title="late", artifact_type="doc", content="x"
+            task_id=task_id,
+            title="late",
+            artifact_type="doc",
+            content="x",
+            claim_generation=claim["claim_generation"],
         )
     )
     done = json.loads(
-        mcp_module.jct_complete_task(task_id=task_id, success=True, summary="expired")
+        mcp_module.jct_complete_task(
+            task_id=task_id,
+            success=True,
+            summary="expired",
+            claim_generation=claim["claim_generation"],
+        )
     )
     assert art["success"] is False and art["error"]["code"] == "LEASE_EXPIRED"
     assert done["success"] is False and done["error"]["code"] == "LEASE_EXPIRED"

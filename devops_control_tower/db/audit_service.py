@@ -36,8 +36,20 @@ class AuditService:
         )
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, commit: bool = True):
+        """``commit=False`` flushes instead of committing, so audit entries join
+        the caller's transaction (lifecycle transitions; DEVOPS-CON-11 review C1).
+        """
         self.db = db
+        self._commit = commit
+
+    def _persist(self, entry: AuditLogModel) -> None:
+        self.db.add(entry)
+        if self._commit:
+            self.db.commit()
+            self.db.refresh(entry)
+        else:
+            self.db.flush()
 
     def log_create(
         self,
@@ -77,9 +89,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     def log_update(
@@ -122,9 +132,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     def log_status_change(
@@ -167,9 +175,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     def log_delete(
@@ -210,9 +216,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     def log_link(
@@ -255,9 +259,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     def log_unlink(
@@ -300,9 +302,7 @@ class AuditService:
             trace_id=trace_id,
         )
 
-        self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        self._persist(entry)
         return entry
 
     # Query methods

@@ -741,6 +741,13 @@ class CWOMRunModel(Base):
     # Trace storage URI (v0: file://, v2: s3://)
     # Example: file:///var/lib/jct/runs/{run_id}/
     artifact_root_uri = Column(String(2000), nullable=True)
+    # The task claim attempt this run belongs to (DEVOPS-CON-11 review C1/N2).
+    # Lifecycle code selects runs by (task_id, claim_generation), never by issue.
+    task_id = Column(String(36), nullable=True)
+    claim_generation = Column(Integer, nullable=True)
+    # Completion stage after the task's result was accepted: "pending" until
+    # proof/review has committed, then "done". Recovered by recover_pending_proofs.
+    proof_status = Column(String(16), nullable=True)
 
     # Metadata
     tags = Column(JSON, nullable=False, default=list)
@@ -778,6 +785,8 @@ class CWOMRunModel(Base):
     __table_args__ = (
         Index("ix_cwom_runs_status_mode", "status", "mode"),
         Index("ix_cwom_runs_created_at", "created_at"),
+        Index("ix_cwom_runs_task_claim", "task_id", "claim_generation"),
+        Index("ix_cwom_runs_proof_status", "proof_status"),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -806,6 +815,9 @@ class CWOMRunModel(Base):
             "outputs": self.outputs,
             "failure": self.failure,
             "artifact_root_uri": self.artifact_root_uri,
+            "task_id": self.task_id,
+            "claim_generation": self.claim_generation,
+            "proof_status": self.proof_status,
             "tags": self.tags,
             "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,

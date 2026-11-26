@@ -1,41 +1,50 @@
 """
 Task lifecycle: the single enforcement point for task state transitions.
 
-Every change to ``tasks.status`` goes through this module (DEVOPS-CON-11; PR #12
-review B1–B3, N1). Each transition is ONE conditional ``UPDATE`` whose
-``WHERE`` clause encodes the invariants, so they hold atomically across
-processes and on SQLite and PostgreSQL alike:
+Every change to ``tasks.status`` goes through this module (DEVOPS-CON-11;
+PR #12 reviews B1–B3, N1 and C1–C5). Each transition is ONE conditional
+``UPDATE`` whose ``WHERE`` clause encodes the invariants:
 
 * ownership: the writer must be the claim's ``assigned_to``;
-* claim generation: every claim increments ``claim_generation``; a writer
-  must present the generation it claimed, so a stale holder or stale reaper
-  can never act on a newer claim (ABA);
-* lease validity: completing requires ``lease_expires_at > now`` *in the
-  UPDATE itself*, so an expired claim fails closed even if the lease reaper
-  never ran or failed;
+* claim generation: every claim increments ``claim_generation``, and the
+  claimant learns its generation from that same statement (``RETURNING``), so
+  a stale caller can never be handed a newer claim's token. Writers must
+  present the generation they claimed;
+* lease validity: writes on behalf of a claim require ``lease_expires_at > now``
+  *in the UPDATE itself*, so an expired claim fails closed even if the lease
+  reaper never ran or failed;
 * confirmed termination: an expired claim becomes ``queued`` again only with
-  confirmed termination; otherwise it is ``held`` for an operator;
-* generic transitions (REST ``PATCH /tasks/{id}/status``, enqueue) are
-  limited to ``pending→queued``, ``pending→cancelled`` and
-  ``queued→cancelled``. Nothing generic can enter or leave ``running`` or
-  ``held``, or complete a task.
+  confirmed termination (literally ``True``); otherwise it is ``held``;
+* generic transitions are limited to ``pending→queued``, ``pending→cancelled``
+  and ``queued→cancelled``.
 
-Callers that also update runs, issues or evidence do so only *after* the task
-transition succeeds, in the same transaction.
+Transactions belong to the caller. Apart from :func:`generic_transition`,
+nothing here commits: audit entries are flushed into the caller's transaction,
+and the caller writes the run, issue, artifacts and job changes that go with
+a transition and then commits once, so they succeed or fail together.
+
+Non-terminal writes for a claim (artifacts, run registration, launch) start
+with :func:`fence`. It is a conditional no-op UPDATE on the task row: it
+fails unless the claim is live, and it holds the row's write lock (PostgreSQL
+row lock; SQLite database write lock) until the caller commits. A concurrent
+hold, requeue or claim therefore serializes with the write: it happens either
+entirely before it (and the fence refuses) or entirely after it commits.
 
 Not enforced here (DEVOPS-CON-5): caller authentication. Identities passed in
 (executor actor, operator) are as trustworthy as the surface that supplied
-them.
+them; a claim generation is a fencing token, not a credential.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from .db.audit_service import AuditService
+from .db.cwom_models import CWOMRunModel
 from .db.models import TaskModel
 
 GENERIC_TRANSITIONS = frozenset(
@@ -69,6 +78,10 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _audit(db: Session) -> AuditService:
+    return AuditService(db, commit=False)
 
 
 def _cas(db: Session, task_id: str, conditions: list, values: Dict[str, Any]) -> bool:
@@ -134,44 +147,61 @@ def claim(
 ) -> Optional[ClaimToken]:
     """queued → running for ``actor``. Returns the token, or None if not claimable.
 
-    Commits, so the claim is visible to other processes immediately.
+    The new generation is read with ``RETURNING`` from the claiming UPDATE
+    itself (review C2). Does not commit: the caller registers the attempt (run,
+    issue) in the same transaction and commits.
     """
     now = _now(now)
-    ok = _cas(
-        db,
-        task_id,
-        [TaskModel.status == "queued"],
-        {
-            "status": "running",
-            "assigned_to": actor,
-            "started_at": now,
-            "lease_expires_at": lease_expires_at,
-            "claim_generation": TaskModel.claim_generation + 1,
-        },
+    stmt = (
+        update(TaskModel)
+        .where(TaskModel.id == task_id, TaskModel.status == "queued")
+        .values(
+            status="running",
+            assigned_to=actor,
+            started_at=now,
+            lease_expires_at=lease_expires_at,
+            claim_generation=TaskModel.claim_generation + 1,
+        )
+        .returning(TaskModel.claim_generation)
+        .execution_options(synchronize_session=False)
     )
-    if not ok:
+    generation = db.execute(stmt).scalar_one_or_none()
+    if generation is None:
         return None  # nothing was written
-    db.commit()
-    db.expire_all()
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).one()
-    return ClaimToken(
-        task_id=str(task.id), actor=actor, generation=task.claim_generation
-    )
+    return ClaimToken(task_id=str(task_id), actor=actor, generation=int(generation))
 
 
-def require_live_claim(
-    db: Session, token: ClaimToken, now: Optional[datetime] = None
-) -> TaskModel:
-    """Read check for non-terminal writes (e.g. artifacts). Raises if not live."""
+def fence(db: Session, token: ClaimToken, now: Optional[datetime] = None) -> None:
+    """Lock a live claim for the caller's transaction, or raise.
+
+    A conditional no-op UPDATE: it matches only if the claim is live, and the
+    row stays write-locked until the caller commits or rolls back, so holds,
+    requeues and finishes serialize with the caller's writes (review C4).
+    """
     now = _now(now)
-    task = (
-        db.query(TaskModel)
-        .filter(TaskModel.id == token.task_id, *_live_conditions(token, now))
-        .first()
-    )
-    if task is None:
+    if not _cas(
+        db,
+        token.task_id,
+        _live_conditions(token, now),
+        {"claim_generation": TaskModel.claim_generation},
+    ):
         raise diagnose(db, token, now)
-    return task
+
+
+def attempt_runs(
+    db: Session,
+    task_id: str,
+    generation: int,
+    statuses: Optional[List[str]] = None,
+) -> List[CWOMRunModel]:
+    """The runs of exactly one claim attempt (never every run on the issue)."""
+    q = db.query(CWOMRunModel).filter(
+        CWOMRunModel.task_id == str(task_id),
+        CWOMRunModel.claim_generation == generation,
+    )
+    if statuses:
+        q = q.filter(CWOMRunModel.status.in_(statuses))
+    return q.all()
 
 
 # --------------------------------------------------------------- finish
@@ -188,7 +218,8 @@ def finish(
     """running → completed|failed, only for the live claim. Does not commit.
 
     Fails closed: an expired lease, another holder, a newer generation or a
-    non-running task all refuse, independent of whether any reaper ran.
+    non-running task all refuse, independent of whether any reaper ran. The
+    caller writes the attempt's run and issue in the same transaction.
     """
     now = _now(now)
     final = "completed" if success else "failed"
@@ -205,7 +236,7 @@ def finish(
         values["trace_path"] = trace_path
     if not _cas(db, token.task_id, _live_conditions(token, now), values):
         raise diagnose(db, token, now)
-    AuditService(db).log_status_change(
+    _audit(db).log_status_change(
         entity_kind="Task",
         entity_id=token.task_id,
         old_status="running",
@@ -218,6 +249,14 @@ def finish(
 
 
 # --------------------------------------------------------------- expiry
+def _expired_conditions(task: TaskModel, now: datetime) -> list:
+    return [
+        TaskModel.status == "running",
+        TaskModel.claim_generation == (task.claim_generation or 0),
+        TaskModel.lease_expires_at <= now,
+    ]
+
+
 def hold_expired(
     db: Session, task: TaskModel, reason: str, now: Optional[datetime] = None
 ) -> bool:
@@ -229,11 +268,7 @@ def hold_expired(
     return _cas(
         db,
         str(task.id),
-        [
-            TaskModel.status == "running",
-            TaskModel.claim_generation == (task.claim_generation or 0),
-            TaskModel.lease_expires_at <= now,
-        ],
+        _expired_conditions(task, now),
         {
             "status": "held",
             "lease_expires_at": None,
@@ -244,18 +279,26 @@ def hold_expired(
 
 
 def requeue_after_confirmed_termination(
-    db: Session, task: TaskModel, now: Optional[datetime] = None
+    db: Session,
+    task: TaskModel,
+    termination_confirmed: Any,
+    now: Optional[datetime] = None,
 ) -> bool:
-    """running → queued for an expired claim whose termination is confirmed."""
+    """running → queued for an expired claim whose termination is confirmed.
+
+    ``termination_confirmed`` must be literally ``True`` (review N1): anything
+    else, including truthy values, refuses. Does not commit.
+    """
+    if termination_confirmed is not True:
+        raise LifecycleError(
+            "TERMINATION_NOT_CONFIRMED",
+            "Requeue requires confirmed termination of the previous holder.",
+        )
     now = _now(now)
     return _cas(
         db,
         str(task.id),
-        [
-            TaskModel.status == "running",
-            TaskModel.claim_generation == (task.claim_generation or 0),
-            TaskModel.lease_expires_at <= now,
-        ],
+        _expired_conditions(task, now),
         {
             "status": "queued",
             "assigned_to": None,
@@ -266,12 +309,25 @@ def requeue_after_confirmed_termination(
 
 
 def resolve_held(
-    db: Session, task: TaskModel, action: str, now: Optional[datetime] = None
+    db: Session,
+    task: TaskModel,
+    action: str,
+    termination_confirmed: Any = False,
+    error: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> bool:
-    """held → queued|failed for exactly the held generation. Does not commit."""
+    """held → queued|failed for exactly the held generation. Does not commit.
+
+    ``requeue`` requires ``termination_confirmed`` to be literally ``True``.
+    """
     now = _now(now)
     if action == "requeue":
-        values = {
+        if termination_confirmed is not True:
+            raise LifecycleError(
+                "TERMINATION_NOT_CONFIRMED",
+                "Requeue requires confirmed termination of the previous holder.",
+            )
+        values: Dict[str, Any] = {
             "status": "queued",
             "assigned_to": None,
             "started_at": None,
@@ -280,6 +336,8 @@ def resolve_held(
         }
     elif action == "fail":
         values = {"status": "failed", "completed_at": now}
+        if error is not None:
+            values["error"] = error
     else:
         raise LifecycleError("INVALID_ACTION", "action must be 'requeue' or 'fail'")
     return _cas(
@@ -339,10 +397,11 @@ def generic_transition(
     if to_status == "cancelled":
         values["completed_at"] = now
     if not _cas(db, task_id, [TaskModel.status == current], values):
+        db.rollback()
         raise LifecycleError(
             "CONCURRENT_CHANGE", f"Task '{task_id}' changed concurrently."
         )
-    AuditService(db).log_status_change(
+    _audit(db).log_status_change(
         entity_kind="Task",
         entity_id=task_id,
         old_status=current,
