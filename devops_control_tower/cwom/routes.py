@@ -603,7 +603,12 @@ async def get_evidence_pack(
     if not evidence_pack:
         raise HTTPException(status_code=404, detail="EvidencePack not found")
 
-    return evidence_pack.to_dict()
+    from ..worker.eligibility import production_eligibility
+
+    return {
+        **evidence_pack.to_dict(),
+        "production_eligibility": production_eligibility(db, evidence_pack),
+    }
 
 
 @router.get("/evidence-packs")
@@ -647,7 +652,12 @@ async def get_evidence_pack_for_run(
             status_code=404, detail=f"No EvidencePack found for Run '{run_id}'"
         )
 
-    return evidence_pack.to_dict()
+    from ..worker.eligibility import production_eligibility
+
+    return {
+        **evidence_pack.to_dict(),
+        "production_eligibility": production_eligibility(db, evidence_pack),
+    }
 
 
 @router.get("/issues/{issue_id}/evidence-packs")

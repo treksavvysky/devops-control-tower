@@ -93,44 +93,48 @@ def _executor_record(actor: str) -> Dict[str, Any]:
     return {"type": EXECUTOR_TYPE, "version": EXECUTOR_VERSION, "worker_id": actor}
 
 
-def _requeue_expired(db) -> list:
-    """Requeue expired claims; never let the reaper break the calling tool."""
-    from devops_control_tower.worker.leases import requeue_expired
+def _process_expired_leases(db) -> dict:
+    """Process expired claims (hold, or requeue on confirmed termination).
+
+    Never lets the reaper break the calling tool. No termination confirmer is
+    available in the MCP server, so expired claims are held (DEVOPS-CON-11).
+    """
+    from devops_control_tower.worker.leases import process_expired_leases
 
     try:
-        return requeue_expired(db, actor_id="lease-reaper:mcp")
+        return process_expired_leases(db, actor_id="lease-reaper:mcp")
     except Exception as exc:  # pragma: no cover - defensive
         db.rollback()
         logger.warning("Lease reaper failed: %s", exc)
-        return []
+        return {"held": [], "requeued": []}
 
 
-def _check_claim_held(db, task, actor: str, claim) -> Optional[str]:
-    """Return an error response if `actor` no longer holds the claim on `task`."""
-    from devops_control_tower.db.cwom_models import CWOMRunModel
+def _claim_token(task_id: str, actor: str, claim_generation):
+    """The caller's claim token. ``claim_generation`` is required (review C3).
 
-    if task.status != "running":
-        return _error(
-            "TASK_NOT_RUNNING",
-            f"Task '{task.id}' is not running (current status: {task.status}).",
+    The request itself must say which claim attempt it acts for. We never
+    substitute a cached or stored generation: a delayed call from an older
+    attempt would otherwise act on the newest one.
+    """
+    from devops_control_tower.lifecycle import ClaimToken
+
+    if claim_generation is None:
+        return None, _error(
+            "CLAIM_TOKEN_REQUIRED",
+            f"claim_generation is required for task '{task_id}'.",
+            "Pass the claim_generation returned by jct_claim_task.",
         )
-    if task.assigned_to != actor:
-        return _error(
-            "CLAIM_NOT_HELD",
-            f"Task '{task.id}' is claimed by '{task.assigned_to}', not '{actor}'.",
+    try:
+        gen = int(claim_generation)
+    except (TypeError, ValueError):
+        return None, _error(
+            "CLAIM_TOKEN_REQUIRED", "claim_generation must be an integer."
         )
-    if claim:
-        run = db.query(CWOMRunModel).filter(CWOMRunModel.id == claim["run_id"]).first()
-        if run is None or run.status != "running":
-            _active_claims.pop(str(task.id), None)
-            reason = (run.failure or {}).get("code") if run is not None else None
-            return _error(
-                "CLAIM_LOST",
-                f"The claim on task '{task.id}' is no longer active"
-                + (f" ({reason})." if reason else "."),
-                "Use jct_list_tasks and claim the task again.",
-            )
-    return None
+    return ClaimToken(task_id=str(task_id), actor=actor, generation=gen), None
+
+
+def _lifecycle_error(exc) -> str:
+    return _error(exc.code, exc.message, "Use jct_list_tasks and claim the task again.")
 
 
 # ---------------------------------------------------------------------------
@@ -141,41 +145,35 @@ def _check_claim_held(db, task, actor: str, claim) -> Optional[str]:
 _active_claims: Dict[str, Dict[str, Any]] = {}
 
 
-def _get_active_claim(task_id: str, db=None):
-    """Get active claim for a task. Falls back to DB query."""
-    if task_id in _active_claims:
-        return _active_claims[task_id]
+def _get_active_claim(task_id: str, generation: int, db=None):
+    """The run and trace store of exactly this claim attempt.
+
+    The in-memory entry is used only if it is for the same generation;
+    otherwise (e.g. after a restart) the run is found by (task_id,
+    claim_generation), never "the first running run on the issue" (review N2).
+    """
+    cached = _active_claims.get(task_id)
+    if cached and cached.get("claim_generation") == generation:
+        return cached
 
     if db is None:
         return None
 
-    from devops_control_tower.db.cwom_models import CWOMRunModel
-    from devops_control_tower.db.models import TaskModel
+    from devops_control_tower.config import get_settings
+    from devops_control_tower.lifecycle import attempt_runs
     from devops_control_tower.worker.storage import create_trace_store
 
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
-    if task and task.cwom_issue_id:
-        run = (
-            db.query(CWOMRunModel)
-            .filter(
-                CWOMRunModel.for_issue_id == task.cwom_issue_id,
-                CWOMRunModel.status == "running",
-            )
-            .first()
-        )
-        if run:
-            from devops_control_tower.config import get_settings
-
-            settings = get_settings()
-            store = create_trace_store(settings.jct_trace_root, run.id)
-            claim = {
-                "run_id": run.id,
-                "trace_uri": run.artifact_root_uri or store.get_uri(),
-                "store": store,
-            }
-            _active_claims[task_id] = claim
-            return claim
-    return None
+    runs = attempt_runs(db, str(task_id), generation)
+    if not runs:
+        return None
+    run = runs[0]
+    store = create_trace_store(get_settings().jct_trace_root, run.id)
+    return {
+        "run_id": run.id,
+        "trace_uri": run.artifact_root_uri or store.get_uri(),
+        "store": store,
+        "claim_generation": generation,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +198,7 @@ def jct_list_tasks(
     try:
         from devops_control_tower.db.services import TaskService
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         svc = TaskService(db)
         tasks = svc.get_tasks(
@@ -244,8 +242,6 @@ def jct_claim_task(task_id: str) -> str:
     """Claim a queued task for execution."""
     db = _get_db()
     try:
-        from sqlalchemy import text
-
         from devops_control_tower.config import get_settings
         from devops_control_tower.db.audit_service import AuditService
         from devops_control_tower.db.cwom_models import (
@@ -266,8 +262,9 @@ def jct_claim_task(task_id: str) -> str:
         if not actor:
             return _actor_missing_error()
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
+        from devops_control_tower.lifecycle import claim as lifecycle_claim
         from devops_control_tower.worker.leases import lease_expiry
 
         # Find the task
@@ -290,30 +287,14 @@ def jct_claim_task(task_id: str) -> str:
                 "Use jct_list_tasks to find another available task.",
             )
 
-        # Atomically claim (optimistic locking) with a lease
+        # Atomic claim through the lifecycle module: queued → running, new
+        # claim generation, lease (DEVOPS-CON-11)
         now = datetime.now(timezone.utc)
         lease_expires_at = lease_expiry(task.time_budget_seconds, now)
-        result = db.execute(
-            text(
-                """
-                UPDATE tasks
-                SET status = 'running',
-                    started_at = :started_at,
-                    assigned_to = :worker_id,
-                    lease_expires_at = :lease_expires_at
-                WHERE id = :task_id AND status = 'queued'
-            """
-            ),
-            {
-                "task_id": str(task.id),
-                "started_at": now,
-                "worker_id": actor,
-                "lease_expires_at": lease_expires_at,
-            },
-        )
-        db.commit()
-
-        if result.rowcount == 0:
+        # The claim, its run and the issue status commit together (review C4):
+        # a hold can't land between the claim and the attempt's registration.
+        token = lifecycle_claim(db, str(task.id), actor, lease_expires_at, now)
+        if token is None:  # nothing was written; the session is closed below
             return _error(
                 "TASK_ALREADY_CLAIMED",
                 f"Task '{task_id}' was claimed by another worker.",
@@ -327,6 +308,7 @@ def jct_claim_task(task_id: str) -> str:
         context_packet_data = None
         constraint_snapshot_data = None
         issue_data = None
+        issue = None
 
         if task.cwom_issue_id:
             issue = (
@@ -347,6 +329,8 @@ def jct_claim_task(task_id: str) -> str:
                     for_issue_kind="Issue",
                     repo_id=issue.repo_id,
                     repo_kind="Repo",
+                    task_id=str(task.id),
+                    claim_generation=token.generation,
                     status="running",
                     mode="agent",
                     executor=_executor_record(actor),
@@ -364,7 +348,7 @@ def jct_claim_task(task_id: str) -> str:
 
                 issue.status = "running"
 
-                audit = AuditService(db)
+                audit = AuditService(db, commit=False)
                 audit.log_create(
                     entity_kind="Run",
                     entity_id=run_id,
@@ -375,71 +359,74 @@ def jct_claim_task(task_id: str) -> str:
                     trace_id=task.trace_id,
                 )
 
-                db.commit()
+        db.commit()  # claim + run + issue + audit, one transaction
 
-                issue_data = {
-                    "id": issue.id,
-                    "title": issue.title,
-                    "type": issue.type,
-                    "status": issue.status,
-                }
-                if issue.acceptance:
-                    issue_data["acceptance_criteria"] = (
-                        issue.acceptance.get("criteria", [])
-                        if isinstance(issue.acceptance, dict)
-                        else []
-                    )
+        if issue is not None:
+            issue_data = {
+                "id": issue.id,
+                "title": issue.title,
+                "type": issue.type,
+                "status": issue.status,
+            }
+            if issue.acceptance:
+                issue_data["acceptance_criteria"] = (
+                    issue.acceptance.get("criteria", [])
+                    if isinstance(issue.acceptance, dict)
+                    else []
+                )
 
-                # Load context packet
-                cp = (
-                    db.query(CWOMContextPacketModel)
-                    .filter(CWOMContextPacketModel.for_issue_id == issue.id)
+            # Load context packet
+            cp = (
+                db.query(CWOMContextPacketModel)
+                .filter(CWOMContextPacketModel.for_issue_id == issue.id)
+                .first()
+            )
+            if cp:
+                context_packet_data = cp.to_dict()
+
+            # Load constraint snapshot
+            cs_id = None
+            if cp and cp.constraint_snapshot_id:
+                cs_id = cp.constraint_snapshot_id
+            if cs_id:
+                cs = (
+                    db.query(CWOMConstraintSnapshotModel)
+                    .filter(CWOMConstraintSnapshotModel.id == cs_id)
                     .first()
                 )
-                if cp:
-                    context_packet_data = cp.to_dict()
+                if cs:
+                    constraint_snapshot_data = cs.to_dict()
 
-                # Load constraint snapshot
-                cs_id = None
-                if cp and cp.constraint_snapshot_id:
-                    cs_id = cp.constraint_snapshot_id
-                if cs_id:
-                    cs = (
-                        db.query(CWOMConstraintSnapshotModel)
-                        .filter(CWOMConstraintSnapshotModel.id == cs_id)
-                        .first()
-                    )
-                    if cs:
-                        constraint_snapshot_data = cs.to_dict()
+            # Initialize trace store and cache claim
+            store = create_trace_store(settings.jct_trace_root, run_id)
+            _active_claims[task_id] = {
+                "run_id": run_id,
+                "trace_uri": trace_uri,
+                "store": store,
+                "claim_generation": token.generation,
+            }
 
-                # Initialize trace store and cache claim
-                store = create_trace_store(settings.jct_trace_root, run_id)
-                _active_claims[task_id] = {
+            # Write initial manifest
+            store.write_json(
+                "manifest.json",
+                {
+                    "version": "1.0",
+                    "task_id": str(task.id),
                     "run_id": run_id,
-                    "trace_uri": trace_uri,
-                    "store": store,
-                }
-
-                # Write initial manifest
-                store.write_json(
-                    "manifest.json",
-                    {
-                        "version": "1.0",
-                        "task_id": str(task.id),
-                        "run_id": run_id,
-                        "trace_id": task.trace_id,
-                        "executor": _executor_record(actor),
-                        "started_at": now.isoformat(),
-                        "lease_expires_at": lease_expires_at.isoformat(),
-                        "status": "running",
-                    },
-                )
+                    "trace_id": task.trace_id,
+                    "executor": _executor_record(actor),
+                    "started_at": now.isoformat(),
+                    "lease_expires_at": lease_expires_at.isoformat(),
+                    "status": "running",
+                },
+            )
 
         return _success(
             task_id=str(task.id),
             run_id=run_id,
             trace_id=task.trace_id,
             executor=actor,
+            claim_generation=token.generation,
             lease_expires_at=lease_expires_at.isoformat(),
             objective=task.objective,
             operation=task.operation,
@@ -550,8 +537,17 @@ def jct_report_artifact(
     content: Optional[str] = None,
     uri: Optional[str] = None,
     media_type: str = "text/plain",
+    claim_generation: Optional[int] = None,
 ) -> str:
-    """Report an artifact produced during execution."""
+    """Report an artifact produced during execution.
+
+    Requires ``claim_generation`` and a live claim (this actor, this
+    generation, lease not expired). The claim is fenced (row write-locked)
+    before anything is written, and the artifact record commits in that same
+    transaction, so a concurrent hold either precedes it (refused) or follows
+    it (review C4). Content goes to a content-addressed path, so a refused or
+    failed write can never overwrite another artifact's bytes.
+    """
     # Validate artifact_type against the CWOM enum
     from devops_control_tower.cwom.enums import ArtifactType
 
@@ -575,23 +571,35 @@ def jct_report_artifact(
         from devops_control_tower.db.cwom_models import CWOMArtifactModel
         from devops_control_tower.db.models import TaskModel
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
             return _error("TASK_NOT_FOUND", f"Task '{task_id}' not found.")
 
-        claim = _get_active_claim(task_id, db)
+        if task.status != "running":
+            return _error(
+                "TASK_NOT_RUNNING",
+                f"Task '{task_id}' is not running (current status: {task.status}).",
+            )
+        token, token_error = _claim_token(task_id, actor, claim_generation)
+        if token_error:
+            return token_error
+        from devops_control_tower.lifecycle import LifecycleError, fence
+
+        try:
+            fence(db, token)  # holds the claim until this transaction commits
+        except LifecycleError as exc:
+            return _lifecycle_error(exc)  # nothing written; session closed below
+
+        claim = _get_active_claim(task_id, token.generation, db)
         if not claim:
             return _error(
                 "NO_ACTIVE_CLAIM",
-                f"No active claim found for task '{task_id}'.",
+                f"No run found for claim generation {token.generation} "
+                f"of task '{task_id}'.",
                 "Use jct_claim_task first.",
             )
-
-        held_error = _check_claim_held(db, task, actor, claim)
-        if held_error:
-            return held_error
 
         run_id = claim["run_id"]
         store = claim.get("store")
@@ -608,7 +616,8 @@ def jct_report_artifact(
         artifact_uri = uri
         if content and store:
             safe_title = title.lower().replace(" ", "_").replace("/", "_")[:50]
-            artifact_path = f"artifacts/{safe_title}"
+            # content-addressed: same bytes → same path; never overwrites others
+            artifact_path = f"artifacts/{digest.split(':', 1)[1][:16]}-{safe_title}"
             store.write_text(artifact_path, content)
             artifact_uri = f"{store.get_uri()}/{artifact_path}"
             store.append_event(
@@ -649,7 +658,7 @@ def jct_report_artifact(
         )
         db.add(artifact)
 
-        audit = AuditService(db)
+        audit = AuditService(db, commit=False)
         audit.log_create(
             entity_kind="Artifact",
             entity_id=artifact_id,
@@ -693,8 +702,19 @@ def jct_complete_task(
     summary: str,
     outputs: Optional[str] = None,
     error_message: Optional[str] = None,
+    claim_generation: Optional[int] = None,
 ) -> str:
-    """Complete a claimed task and trigger prove/review."""
+    """Complete a claimed task and trigger prove/review.
+
+    Requires ``claim_generation``. Two explicit stages (review C1):
+
+    1. **Accept the result**, in one transaction: the task transition (this
+       actor, this generation, running, lease not expired), this attempt's
+       run and issue, and the audit entries. Nothing is written if the claim
+       isn't live, even if no lease reaper ran.
+    2. **Prove and review**, in one transaction. If it fails, the run stays
+       ``proof_status="pending"`` and ``recover_pending_proofs`` retries it.
+    """
     actor = _actor_id()
     if not actor:
         return _actor_missing_error()
@@ -702,25 +722,30 @@ def jct_complete_task(
     db = _get_db()
     try:
         from devops_control_tower.db.audit_service import AuditService
-        from devops_control_tower.db.cwom_models import CWOMIssueModel, CWOMRunModel
+        from devops_control_tower.db.cwom_models import (
+            CWOMArtifactModel,
+            CWOMIssueModel,
+        )
         from devops_control_tower.db.models import TaskModel
-        from devops_control_tower.worker.pipeline import apply_review_policy, run_prove
+        from devops_control_tower.lifecycle import LifecycleError, attempt_runs, finish
+        from devops_control_tower.worker.pipeline import PROOF_PENDING, complete_proof
 
-        _requeue_expired(db)
+        _process_expired_leases(db)
 
         task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
         if not task:
             return _error("TASK_NOT_FOUND", f"Task '{task_id}' not found.")
-
-        claim = _get_active_claim(task_id, db)
-        held_error = _check_claim_held(db, task, actor, claim)
-        if held_error:
-            return held_error
+        if task.status != "running":
+            return _error(
+                "TASK_NOT_RUNNING",
+                f"Task '{task_id}' is not running (current status: {task.status}).",
+            )
+        token, token_error = _claim_token(task_id, actor, claim_generation)
+        if token_error:
+            return token_error
 
         now = datetime.now(timezone.utc)
-
-        # Parse outputs if provided as JSON string
-        outputs_dict = {}
+        outputs_dict: Dict[str, Any] = {}
         if outputs:
             try:
                 outputs_dict = json.loads(outputs)
@@ -728,144 +753,127 @@ def jct_complete_task(
                 outputs_dict = {"raw": outputs}
         outputs_dict["summary"] = summary
 
-        # Update task
-        task.status = "completed" if success else "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.result = outputs_dict
-        if not success and error_message:
-            task.error = error_message
+        claim = _get_active_claim(task_id, token.generation, db)
+        store = claim.get("store") if claim else None
+
+        # ---- Stage 1: accept the result (one transaction) ----
+        try:
+            finish(
+                db,
+                token,
+                success,
+                result=outputs_dict,
+                error=error_message if (not success and error_message) else None,
+                trace_path=store.get_uri() if store else None,
+                now=now,
+            )
+        except LifecycleError as exc:
+            return _lifecycle_error(exc)  # nothing written; session closed below
 
         response: Dict[str, Any] = {
             "task_id": str(task.id),
-            "task_status": task.status,
+            "task_status": "completed" if success else "failed",
+            "claim_generation": token.generation,
         }
-
-        # Update CWOM Run if exists
-        run = None
-        if claim:
-            run_id = claim["run_id"]
-            store = claim.get("store")
-
-            run = db.query(CWOMRunModel).filter(CWOMRunModel.id == run_id).first()
-
-            if run:
-                run.status = "done" if success else "failed"
-                run.outputs = outputs_dict
-
-                if not success:
-                    run.failure = {
-                        "code": "AGENT_REPORTED_FAILURE",
-                        "message": error_message or summary,
-                    }
-
-                # Update linked issue
-                issue = (
-                    db.query(CWOMIssueModel)
-                    .filter(CWOMIssueModel.id == run.for_issue_id)
-                    .first()
-                )
-                if issue:
-                    issue.status = "done" if success else "failed"
-
-                # Audit log
-                audit = AuditService(db)
-                audit.log_status_change(
-                    entity_kind="Run",
-                    entity_id=run.id,
-                    old_status="running",
-                    new_status="done" if success else "failed",
-                    actor_kind="agent",
-                    actor_id=actor,
-                    note=summary,
-                    trace_id=task.trace_id,
-                )
-
-                # Write final manifest, including executor and artifact digests
-                if store:
-                    from devops_control_tower.db.cwom_models import CWOMArtifactModel
-
-                    run_artifacts = (
-                        db.query(CWOMArtifactModel)
-                        .filter(CWOMArtifactModel.produced_by_id == run_id)
-                        .all()
-                    )
-                    store.write_json(
-                        "manifest.json",
-                        {
-                            "version": "1.1",
-                            "task_id": str(task.id),
-                            "run_id": run_id,
-                            "trace_id": task.trace_id,
-                            "executor": _executor_record(actor),
-                            "started_at": task.started_at.isoformat()
-                            if task.started_at
-                            else None,
-                            "completed_at": now.isoformat(),
-                            "status": "completed" if success else "failed",
-                            "result": outputs_dict,
-                            "artifacts": [
-                                {
-                                    "id": a.id,
-                                    "title": a.title,
-                                    "uri": a.uri,
-                                    "digest": a.digest,
-                                    "size_bytes": a.size_bytes,
-                                }
-                                for a in run_artifacts
-                            ],
-                        },
-                    )
-                    if store:
-                        task.trace_path = store.get_uri()
-
-                response["run_id"] = run_id
-                response["run_status"] = run.status
-
-                # Flush (not commit) so prove can read updated state
-                db.flush()
-
-                # Step 4: Prove
-                try:
-                    evidence_pack = run_prove(
-                        db=db,
-                        run=run,
-                        task=task,
-                        store=store,
-                        prover_id="claude-code-mcp",
-                    )
-                    response["evidence_pack"] = {
-                        "id": evidence_pack.id,
-                        "verdict": evidence_pack.verdict,
-                        "verdict_reason": evidence_pack.verdict_reason,
-                    }
-
-                    # Step 5: Review
-                    if success:
-                        review_result = apply_review_policy(
-                            db=db,
-                            task=task,
-                            run=run,
-                            evidence_pack=evidence_pack,
-                            actor_id=actor,
-                            trace_id=task.trace_id,
-                        )
-                        response["review"] = review_result
-                        # Refresh run status after review policy
-                        db.refresh(run)
-                        response["run_status"] = run.status
-                except Exception as prove_exc:
-                    logger.warning(
-                        "Prove/review failed for run %s: %s",
-                        run_id,
-                        prove_exc,
-                    )
-                    response["prove_error"] = str(prove_exc)
-
-            # Clean up active claim
-            _active_claims.pop(task_id, None)
-
+        runs = attempt_runs(db, str(task_id), token.generation, ["running"])
+        run = runs[0] if runs else None
+        if run is not None:
+            run.status = "done" if success else "failed"
+            run.outputs = outputs_dict
+            run.proof_status = PROOF_PENDING
+            if not success:
+                run.failure = {
+                    "code": "AGENT_REPORTED_FAILURE",
+                    "message": error_message or summary,
+                }
+            issue = (
+                db.query(CWOMIssueModel)
+                .filter(CWOMIssueModel.id == run.for_issue_id)
+                .first()
+            )
+            if issue:
+                issue.status = "done" if success else "failed"
+            AuditService(db, commit=False).log_status_change(
+                entity_kind="Run",
+                entity_id=run.id,
+                old_status="running",
+                new_status=run.status,
+                actor_kind="agent",
+                actor_id=actor,
+                note=summary,
+                trace_id=task.trace_id,
+            )
         db.commit()
+        _active_claims.pop(task_id, None)
+        db.refresh(task)
+
+        if run is None:
+            return _success(**response)
+        run_id = run.id
+        response["run_id"] = run_id
+        response["run_status"] = run.status
+
+        # Final manifest, written after the result was accepted
+        if store:
+            run_artifacts = (
+                db.query(CWOMArtifactModel)
+                .filter(CWOMArtifactModel.produced_by_id == run_id)
+                .all()
+            )
+            store.write_json(
+                "manifest.json",
+                {
+                    "version": "1.1",
+                    "task_id": str(task.id),
+                    "run_id": run_id,
+                    "claim_generation": token.generation,
+                    "trace_id": task.trace_id,
+                    "executor": _executor_record(actor),
+                    "started_at": task.started_at.isoformat()
+                    if task.started_at
+                    else None,
+                    "completed_at": now.isoformat(),
+                    "status": "completed" if success else "failed",
+                    "result": outputs_dict,
+                    "artifacts": [
+                        {
+                            "id": a.id,
+                            "title": a.title,
+                            "uri": a.uri,
+                            "digest": a.digest,
+                            "size_bytes": a.size_bytes,
+                        }
+                        for a in run_artifacts
+                    ],
+                },
+            )
+
+        # ---- Stage 2: prove and review (one transaction, recoverable) ----
+        try:
+            proof = complete_proof(
+                db,
+                run,
+                task,
+                store,
+                prover_id="claude-code-mcp",
+                actor_id=actor,
+                review=success,
+            )
+            evidence_pack = proof["evidence_pack"]
+            response["evidence_pack"] = {
+                "id": evidence_pack.id,
+                "verdict": evidence_pack.verdict,
+                "verdict_reason": evidence_pack.verdict_reason,
+            }
+            if "review" in proof:
+                response["review"] = proof["review"]
+            db.refresh(run)
+            response["run_status"] = run.status
+        except Exception as prove_exc:
+            logger.warning("Prove/review failed for run %s: %s", run_id, prove_exc)
+            response["prove_error"] = str(prove_exc)
+            response["proof_status"] = PROOF_PENDING
+
         return _success(**response)
 
     except Exception as exc:
@@ -964,7 +972,12 @@ def jct_get_evidence(run_id: str) -> str:
                 f"No evidence pack found for '{run_id}' "
                 "(searched by run ID and evidence pack ID).",
             )
-        return _success(evidence_pack=ep.to_dict())
+        from devops_control_tower.worker.eligibility import production_eligibility
+
+        return _success(
+            evidence_pack=ep.to_dict(),
+            production_eligibility=production_eligibility(db, ep),
+        )
     except Exception as exc:
         return _error("GET_EVIDENCE_ERROR", str(exc))
     finally:

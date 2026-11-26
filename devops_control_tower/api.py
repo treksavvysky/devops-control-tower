@@ -611,16 +611,28 @@ async def update_task_status(
     trace_path: Optional[str] = None,
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Update task status and execution details."""
+    """Generic status update (pending→queued, pending→cancelled, queued→cancelled only).
+
+    Lifecycle transitions (claim, finish, hold, resolve) are refused here with
+    409. They go through the lifecycle module with ownership, claim generation
+    and lease checks (DEVOPS-CON-11). Authentication is DEVOPS-CON-5.
+    """
+    from .lifecycle import LifecycleError
+
     task_service = TaskService(db)
-    task = task_service.update_task_status(
-        task_id,
-        status=status,
-        assigned_to=assigned_to,
-        result=result,
-        error=error,
-        trace_path=trace_path,
-    )
+    try:
+        task = task_service.update_task_status(
+            task_id,
+            status=status,
+            assigned_to=assigned_to,
+            result=result,
+            error=error,
+            trace_path=trace_path,
+        )
+    except LifecycleError as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": exc.code, "message": exc.message}
+        )
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

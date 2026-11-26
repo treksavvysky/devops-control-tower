@@ -87,6 +87,8 @@ jobs:
     - name: Run tests
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_devops_control_tower
+        # Runs the PostgreSQL variants of tests/test_lease_fencing.py (DEVOPS-CON-10/11)
+        DCT_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/test_devops_control_tower
         REDIS_URL: redis://localhost:6379/0
       run: |
         coverage run -m pytest -o addopts="-ra --strict-markers --strict-config"

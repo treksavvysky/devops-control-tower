@@ -396,35 +396,31 @@ class TaskService:
         error: Optional[str] = None,
         trace_path: Optional[str] = None,
     ) -> Optional[TaskModel]:
-        """Update task status and execution details."""
-        task = self.get_task(task_id)
-        if not task:
-            return None
+        """Generic status update, limited to the lifecycle's generic transitions.
 
-        task.status = status
+        Only pending→queued, pending→cancelled and queued→cancelled are allowed.
+        Claiming, finishing, holding and resolving go through
+        :mod:`devops_control_tower.lifecycle` (DEVOPS-CON-11). Raises
+        ``LifecycleError`` (TRANSITION_FORBIDDEN) otherwise; returns None if
+        the task doesn't exist.
+        """
+        from ..lifecycle import LifecycleError, generic_transition
 
-        # Update timestamps based on status
-        now = datetime.now(timezone.utc)
-        if status == "queued" and not task.queued_at:
-            task.queued_at = now
-        elif status == "running" and not task.started_at:
-            task.started_at = now
-        elif status in ["completed", "failed", "cancelled"] and not task.completed_at:
-            task.completed_at = now
-
-        # Update other fields
+        extras: Dict[str, Any] = {}
         if assigned_to:
-            task.assigned_to = assigned_to
+            extras["assigned_to"] = assigned_to  # refused: ownership comes from claim
         if result:
-            task.result = result
+            extras["result"] = result
         if error:
-            task.error = error
+            extras["error"] = error
         if trace_path:
-            task.trace_path = trace_path
-
-        self.db.commit()
-        self.db.refresh(task)
-        return task
+            extras["trace_path"] = trace_path
+        try:
+            return generic_transition(self.db, task_id, status, extras)
+        except LifecycleError as exc:
+            if exc.code == "TASK_NOT_FOUND":
+                return None
+            raise
 
     def get_pending_tasks(self, limit: int = 50) -> List[TaskModel]:
         """Get pending tasks for processing."""
@@ -570,8 +566,9 @@ class JobService:
         self,
         job_id: str,
         result: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> Optional[JobModel]:
-        """Mark a job as completed."""
+        """Mark a job as completed (``commit=False``: join the caller's transaction)."""
         job = self.get_job(job_id)
         if not job or job.status != "running":
             return None
@@ -582,6 +579,9 @@ class JobService:
         if result:
             job.result = result
 
+        if not commit:
+            self.db.flush()
+            return job
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -591,8 +591,9 @@ class JobService:
         job_id: str,
         error: str,
         result: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> Optional[JobModel]:
-        """Mark a job as failed."""
+        """Mark a job as failed (``commit=False``: join the caller's transaction)."""
         job = self.get_job(job_id)
         if not job:
             return None
@@ -604,6 +605,9 @@ class JobService:
         if result:
             job.result = result
 
+        if not commit:
+            self.db.flush()
+            return job
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -642,6 +646,7 @@ class ArtifactService:
         size_bytes: Optional[int] = None,
         checksum: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> ArtifactModel:
         """Create a new artifact.
 
@@ -675,6 +680,9 @@ class ArtifactService:
         )
 
         self.db.add(db_artifact)
+        if not commit:  # join the caller's transaction (fenced result writes)
+            self.db.flush()
+            return db_artifact
         self.db.commit()
         self.db.refresh(db_artifact)
         return db_artifact

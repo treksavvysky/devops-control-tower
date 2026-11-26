@@ -18,9 +18,8 @@ import signal
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -34,9 +33,13 @@ from ..db.cwom_models import (
     CWOMRunModel,
 )
 from ..db.models import TaskModel
+from ..lifecycle import ClaimToken, LifecycleError
+from ..lifecycle import claim as lifecycle_claim
+from ..lifecycle import fence as lifecycle_fence
+from ..lifecycle import finish as lifecycle_finish
 from .executor import ExecutionContext, ExecutionResult, get_executor
-from .leases import lease_expiry, requeue_expired
-from .pipeline import apply_review_policy, run_prove
+from .leases import lease_expiry, process_expired_leases
+from .pipeline import PROOF_PENDING, complete_proof, recover_pending_proofs
 from .storage import create_trace_store, get_trace_uri
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,8 @@ class WorkerLoop:
         self.claim_limit = claim_limit or self.settings.worker_claim_limit
         self.running = False
         self.worker_id = f"worker-{uuid.uuid4().hex[:8]}"
+        # task_id -> ClaimToken for claims this worker holds (DEVOPS-CON-11)
+        self._claims: Dict[str, ClaimToken] = {}
 
         logger.info(
             f"Worker initialized: id={self.worker_id}, "
@@ -114,7 +119,10 @@ class WorkerLoop:
         db = SessionLocal()
         try:
             # Requeue claims whose lease has expired (G7)
-            requeue_expired(db, actor_id=f"lease-reaper:{self.worker_id}")
+            # Hold (or, with confirmed termination, requeue) expired claims.
+            # No termination confirmer exists yet, so expired claims are held.
+            process_expired_leases(db, actor_id=f"lease-reaper:{self.worker_id}")
+            recover_pending_proofs(db, actor_id=f"proof-recovery:{self.worker_id}")
 
             # Find and claim queued tasks
             task = self._claim_task(db)
@@ -152,33 +160,22 @@ class WorkerLoop:
         if task is None:
             return None
 
-        # Atomically claim it (optimistic locking), with a lease
-        # Only update if status is still 'queued'
+        # Atomic claim through the lifecycle module (new claim generation, lease)
         now = datetime.now(timezone.utc)
-        result = db.execute(
-            text(
-                """
-                UPDATE tasks
-                SET status = 'running',
-                    started_at = :started_at,
-                    assigned_to = :worker_id,
-                    lease_expires_at = :lease_expires_at
-                WHERE id = :task_id AND status = 'queued'
-            """
-            ),
-            {
-                "task_id": str(task.id),
-                "started_at": now,
-                "worker_id": self.worker_id,
-                "lease_expires_at": lease_expiry(task.time_budget_seconds, now),
-            },
+        token = lifecycle_claim(
+            db,
+            str(task.id),
+            self.worker_id,
+            lease_expiry(task.time_budget_seconds, now),
+            now,
         )
-        db.commit()
-
-        if result.rowcount == 0:
+        if token is None:
             # Another worker claimed it
+            db.rollback()
             logger.debug(f"Task {task.id} claimed by another worker")
             return None
+        db.commit()
+        self._claims[str(task.id)] = token
 
         # Refresh to get updated values
         db.refresh(task)
@@ -194,22 +191,38 @@ class WorkerLoop:
         run: Optional[CWOMRunModel] = None
         store = None
 
+        # Launch authorization (review C4): fence the claim, register the
+        # attempt's run and commit, all in one transaction. A concurrent hold
+        # either comes first (the fence refuses; nothing is created or run) or
+        # after the launch is recorded (it then holds a launched attempt, whose
+        # result will be discarded; interrupting it is the substrate's job).
+        token = self._claims.get(str(task.id))
+        if token is None:
+            logger.error("No claim token for task %s; not processing", task.id)
+            return
         try:
-            # Create CWOM Run if task has linked issue
-            run = self._create_run(db, task)
+            lifecycle_fence(db, token)
+            run = self._create_run(db, task, token.generation)
+            if run:
+                run.artifact_root_uri = get_trace_uri(
+                    self.settings.jct_trace_root, str(run.id)
+                )
+            db.commit()
+        except LifecycleError as exc:
+            db.rollback()
+            self._claims.pop(str(task.id), None)
+            logger.warning("Not launching task %s: %s", task.id, exc.code)
+            return
+        except Exception as exc:  # launch bookkeeping failed: fail the live claim
+            db.rollback()
+            logger.exception(f"Launch failed for task {task.id}: {exc}")
+            self._handle_failure(db, task, None, None, str(exc))
+            return
 
-            # Set up trace storage
-            trace_uri = get_trace_uri(
-                self.settings.jct_trace_root, str(run.id) if run else str(task.id)
-            )
+        try:
             store = create_trace_store(
                 self.settings.jct_trace_root, str(run.id) if run else str(task.id)
             )
-
-            # Update run with artifact URI
-            if run:
-                run.artifact_root_uri = trace_uri
-                db.commit()
 
             # Build execution context
             context = self._build_context(db, task, run)
@@ -228,8 +241,10 @@ class WorkerLoop:
             logger.exception(f"Error processing task {task.id}: {e}")
             self._handle_failure(db, task, run, store, str(e))
 
-    def _create_run(self, db: Session, task: TaskModel) -> Optional[CWOMRunModel]:
-        """Create CWOM Run for the task.
+    def _create_run(
+        self, db: Session, task: TaskModel, claim_generation: int
+    ) -> Optional[CWOMRunModel]:
+        """Create the CWOM Run for this claim attempt (caller commits).
 
         Args:
             db: Database session
@@ -265,6 +280,8 @@ class WorkerLoop:
             for_issue_kind="Issue",
             repo_id=issue.repo_id,
             repo_kind="Repo",
+            task_id=str(task.id),
+            claim_generation=claim_generation,
             status="running",
             mode="system",  # Worker is system-driven
             executor={
@@ -287,8 +304,8 @@ class WorkerLoop:
         # Update issue status to running
         issue.status = "running"
 
-        # Audit log
-        audit = AuditService(db)
+        # Audit log (same transaction as the launch)
+        audit = AuditService(db, commit=False)
         audit.log_create(
             entity_kind="Run",
             entity_id=run_id,
@@ -299,7 +316,7 @@ class WorkerLoop:
             trace_id=task.trace_id,
         )
 
-        db.commit()
+        db.flush()
         logger.info(f"Created run {run_id} for task {task.id}")
 
         return run
@@ -412,6 +429,79 @@ class WorkerLoop:
         if context.constraint_snapshot:
             store.write_json("constraints.json", context.constraint_snapshot)
 
+    def _accept(
+        self,
+        db: Session,
+        task: TaskModel,
+        run: Optional[CWOMRunModel],
+        store,
+        success: bool,
+        record_run,
+        **finish_kw,
+    ) -> bool:
+        """Accept a result in ONE transaction, or discard it.
+
+        The task transition (this worker, this claim generation, running,
+        lease not expired) and ``record_run(run)`` (run, issue, artifacts,
+        audit) commit together (review C1). If the claim isn't live, nothing is
+        written for the task, and only this worker's own run is marked failed
+        (conditional on its generation and on still being ``running``).
+        """
+        token = self._claims.pop(str(task.id), None)
+        if token is None:
+            logger.error("No claim token for task %s; refusing to finish it", task.id)
+            return False
+        try:
+            lifecycle_finish(db, token, success, **finish_kw)
+            if run is not None:
+                record_run(run)
+            db.commit()
+        except LifecycleError as exc:
+            return self._discard(db, task, run, store, token, exc)
+        except Exception:
+            # Nothing was accepted: roll back the whole transaction and keep the
+            # token, so the caller can still record a failure for this claim.
+            db.rollback()
+            self._claims[str(task.id)] = token
+            raise
+        db.refresh(task)
+        return True
+
+    def _discard(self, db, task, run, store, token, exc) -> bool:
+        """The claim isn't live: accept nothing; mark only our own run failed."""
+        db.rollback()
+        logger.warning(
+            "Discarding result for task %s: %s (%s)", task.id, exc.code, exc.message
+        )
+        if run is not None:
+            db.query(CWOMRunModel).filter(
+                CWOMRunModel.id == run.id,
+                CWOMRunModel.claim_generation == token.generation,
+                CWOMRunModel.status == "running",
+            ).update(
+                {
+                    "status": "failed",
+                    "failure": {
+                        "code": exc.code,
+                        "message": f"Result discarded: {exc.message}",
+                    },
+                },
+                synchronize_session=False,
+            )
+            db.commit()
+        if store:
+            store.append_event(
+                {
+                    "event": "result_discarded",
+                    "code": exc.code,
+                    "reason": exc.message,
+                }
+            )
+            store.append_line(
+                "trace.log", f"RESULT DISCARDED: {exc.code}: {exc.message}"
+            )
+        return False
+
     def _handle_result(
         self,
         db: Session,
@@ -456,31 +546,17 @@ class WorkerLoop:
             },
             "telemetry": result.telemetry,
         }
-        store.write_json("manifest.json", manifest)
 
-        # Update task
-        task.status = "completed" if result.success else "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.result = result.outputs
-        task.trace_path = store.get_uri()
-
-        if not result.success:
-            task.error = result.error_message
-
-        # Update CWOM Run if exists
-        if run:
+        def record_run(run: CWOMRunModel) -> None:
             run.status = "done" if result.success else "failed"
             run.outputs = result.outputs
             run.telemetry = result.telemetry
-
+            run.proof_status = PROOF_PENDING
             if not result.success:
                 run.failure = {
                     "code": result.error_code or "EXECUTION_FAILED",
                     "message": result.error_message,
                 }
-
-            # Update linked issue status
             issue = (
                 db.query(CWOMIssueModel)
                 .filter(CWOMIssueModel.id == run.for_issue_id)
@@ -488,61 +564,66 @@ class WorkerLoop:
             )
             if issue:
                 issue.status = "done" if result.success else "failed"
-
-            # Create artifacts in CWOM
             for artifact_data in result.artifacts:
-                artifact = CWOMArtifactModel(
-                    id=str(uuid.uuid4()),
-                    kind="Artifact",
-                    trace_id=task.trace_id,
-                    produced_by_id=run.id,
-                    produced_by_kind="Run",
-                    for_issue_id=run.for_issue_id,
-                    for_issue_kind="Issue",
-                    type=artifact_data.get("type", "doc"),
-                    title=artifact_data.get("title", "Output"),
-                    uri=f"{store.get_uri()}/{artifact_data.get('path', 'output')}",
-                    media_type=artifact_data.get("media_type"),
+                db.add(
+                    CWOMArtifactModel(
+                        id=str(uuid.uuid4()),
+                        kind="Artifact",
+                        trace_id=task.trace_id,
+                        produced_by_id=run.id,
+                        produced_by_kind="Run",
+                        for_issue_id=run.for_issue_id,
+                        for_issue_kind="Issue",
+                        type=artifact_data.get("type", "doc"),
+                        title=artifact_data.get("title", "Output"),
+                        uri=f"{store.get_uri()}/{artifact_data.get('path', 'output')}",
+                        media_type=artifact_data.get("media_type"),
+                    )
                 )
-                db.add(artifact)
-
-            # Audit log
-            audit = AuditService(db)
-            audit.log_status_change(
+            AuditService(db, commit=False).log_status_change(
                 entity_kind="Run",
                 entity_id=run.id,
                 old_status="running",
-                new_status="done" if result.success else "failed",
+                new_status=run.status,
                 actor_kind="system",
                 actor_id=self.worker_id,
                 note=f"Execution {'completed' if result.success else 'failed'}",
                 trace_id=task.trace_id,
             )
 
-            # Step 4: Prove - Create Evidence Pack
-            db.commit()  # Commit artifacts first so prover can find them
-            db.refresh(run)  # Refresh run to get updated state
+        # Stage 1: accept the result (one transaction) or discard it
+        if not self._accept(
+            db,
+            task,
+            run,
+            store,
+            result.success,
+            record_run,
+            result=result.outputs,
+            error=None if result.success else result.error_message,
+            trace_path=store.get_uri(),
+            now=now,
+        ):
+            return
+        store.write_json("manifest.json", manifest)
 
-            evidence_pack = run_prove(
-                db=db,
-                run=run,
-                task=task,
-                store=store,
-                prover_id=self.worker_id,
-            )
-
-            # Step 5: Review - Check review policy
-            if result.success:
-                apply_review_policy(
-                    db=db,
-                    task=task,
-                    run=run,
-                    evidence_pack=evidence_pack,
+        # Stage 2: prove and review (one transaction; recoverable if it fails)
+        if run:
+            try:
+                complete_proof(
+                    db,
+                    run,
+                    task,
+                    store,
+                    prover_id=self.worker_id,
                     actor_id=self.worker_id,
-                    trace_id=task.trace_id,
+                    review=result.success,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Proof stage failed for run %s (left pending): %s", run.id, exc
                 )
 
-        db.commit()
         logger.info(
             f"Task {task.id} {'completed' if result.success else 'failed'}: "
             f"{result.outputs.get('message', '')}"
@@ -567,44 +648,9 @@ class WorkerLoop:
         """
         now = datetime.now(timezone.utc)
 
-        # Update task
-        task.status = "failed"
-        task.completed_at = now
-        task.lease_expires_at = None
-        task.error = error
-
-        # Write error to trace if store available
-        if store:
-            store.append_line("trace.log", f"[{now.isoformat()}] FATAL ERROR: {error}")
-            store.append_event(
-                {
-                    "event": "execution_failed",
-                    "error": error,
-                }
-            )
-
-            manifest = {
-                "version": "1.0",
-                "task_id": str(task.id),
-                "run_id": str(run.id) if run else None,
-                "trace_id": task.trace_id,
-                "worker_id": self.worker_id,
-                "completed_at": now.isoformat(),
-                "status": "failed",
-                "error": error,
-            }
-            store.write_json("manifest.json", manifest)
-            task.trace_path = store.get_uri()
-
-        # Update CWOM Run if exists
-        if run:
+        def record_run(run: CWOMRunModel) -> None:
             run.status = "failed"
-            run.failure = {
-                "code": "WORKER_ERROR",
-                "message": error,
-            }
-
-            # Update linked issue status
+            run.failure = {"code": "WORKER_ERROR", "message": error}
             issue = (
                 db.query(CWOMIssueModel)
                 .filter(CWOMIssueModel.id == run.for_issue_id)
@@ -612,10 +658,7 @@ class WorkerLoop:
             )
             if issue:
                 issue.status = "failed"
-
-            # Audit log
-            audit = AuditService(db)
-            audit.log_status_change(
+            AuditService(db, commit=False).log_status_change(
                 entity_kind="Run",
                 entity_id=run.id,
                 old_status="running",
@@ -626,7 +669,36 @@ class WorkerLoop:
                 trace_id=task.trace_id,
             )
 
-        db.commit()
+        # Accept the failure in one transaction, or discard it if the claim is lost
+        if not self._accept(
+            db,
+            task,
+            run,
+            store,
+            False,
+            record_run,
+            error=error,
+            trace_path=store.get_uri() if store else None,
+            now=now,
+        ):
+            return
+
+        if store:
+            store.append_line("trace.log", f"[{now.isoformat()}] FATAL ERROR: {error}")
+            store.append_event({"event": "execution_failed", "error": error})
+            store.write_json(
+                "manifest.json",
+                {
+                    "version": "1.0",
+                    "task_id": str(task.id),
+                    "run_id": str(run.id) if run else None,
+                    "trace_id": task.trace_id,
+                    "worker_id": self.worker_id,
+                    "completed_at": now.isoformat(),
+                    "status": "failed",
+                    "error": error,
+                },
+            )
         logger.error(f"Task {task.id} failed: {error}")
 
 
